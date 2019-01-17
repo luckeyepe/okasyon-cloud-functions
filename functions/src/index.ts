@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from'firebase-admin';
 import {log} from "util";
+import Firestore = admin.firestore.Firestore;
 admin.initializeApp();
 
 // // Start writing Firebase Functions
@@ -42,7 +43,7 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
 
 function removeArticleEnglishWords(dirtyString: string):string[] {
     const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
-    "yet", "it", "they", "him", "her", "them"];
+    "yet", "it", "they", "him", "her", "them", "of"];
 
     var dirtyStringArray: string[] = dirtyString.replace(/[^\w\s]|_/g,
         function ($1) { return ' ' + $1 + ' ';})
@@ -65,9 +66,12 @@ function removeArticleEnglishWords(dirtyString: string):string[] {
 
     var cleanStringArray:string[] = new Array(count);
 
+    //remove single characters
     for(var k=0; k<count; k++){
-        console.log(placeholderStringArray[k]);
-        cleanStringArray[k]=placeholderStringArray[k];
+        if (placeholderStringArray[k].length !== 1) {
+            cleanStringArray[k] = placeholderStringArray[k];
+        }
+        console.log("Remove articles "+k+cleanStringArray[k]);
     }
 
     return cleanStringArray;
@@ -78,18 +82,30 @@ exports.modifyItems = functions.region('asia-northeast1').firestore
     .onWrite((change, context) => {
         // Get an object with the current document value.
         // If the document does not exist, it has been deleted.
-        if (change.after.exists){
-            //todo
-            const itemDocument = change.after.data();
-            const itemName: string = itemDocument['item_name'];
-            const itemDescription: string = itemDocument['item_description'];
-            const itemPriceDescription: string = itemDocument['item_price_description'];
-            const itemDirtyString: string = itemName.concat(" ",itemDescription, " ",itemPriceDescription);
+        const data = change.after.data();
+        const previousData = change.before.data();
+        
+        if (change['item_docs'] !== previousData['item_docs']) {
 
-            //clean up comm
-            removeArticleEnglishWords(itemDirtyString.toLocaleLowerCase());
-        } else {
-            //todo rebuild tfidf
+            if (change.after.exists) {
+                //todo
+                const itemDocument = change.after.data();
+                const itemName: string = itemDocument['item_name'];
+                const itemDescription: string = itemDocument['item_description'];
+                const itemPriceDescription: string = itemDocument['item_price_description'];
+                const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
+
+                //clean up comm
+                var cleanStringArray = removeArticleEnglishWords(itemDirtyString.toLocaleLowerCase());
+
+
+                //update data (be careful of infinite loops)
+
+
+            } else {
+                //todo rebuild tfidf
+            }
         }
+
 
     });
