@@ -1,7 +1,5 @@
 import * as functions from 'firebase-functions';
 import * as admin from'firebase-admin';
-import {log} from "util";
-import Firestore = admin.firestore.Firestore;
 admin.initializeApp();
 
 // // Start writing Firebase Functions
@@ -44,17 +42,23 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     console.log("Item Name: "+itemName);
     console.log("Store ID: "+storeUid);
 
-    return snapshot.ref.update({item_doc: itemDoc})
+    return admin.firestore().collection('Items').doc(item['item_uid']).update({item_doc: itemDoc});
 });
 
-export const onItemUpdate = functions
+export const onItemDocUpdate = functions
     .firestore
     .document('Items/{itemID}').onUpdate((change, context) =>{
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
 
-        if (itemAfter['item_doc'] === itemBefore['item_doc']){
-            console.log("Item has no new data");
+        if (itemAfter['item_name'] === itemBefore['item_name']
+            && itemAfter['item_description'] === itemBefore['item_description']
+            && itemAfter['item_price_description'] === itemBefore['item_price_description'] ){
+            // var map;
+            // console.log("Item has no new data");
+            // eval("map = {a: 'aaa', b: 'baz', c: 'cat'}");
+            // console.log(map);
+            // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_tf: map});
             return null;
         }else {
             const itemName = itemAfter['item_name'];
