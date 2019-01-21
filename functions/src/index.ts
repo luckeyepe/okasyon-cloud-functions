@@ -58,17 +58,30 @@ export const onItemDocUpdate = functions
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
 
+        console.log("After: "+ itemAfter['item_name']+", Before: "+ itemBefore['item_name']);
+        console.log("After: "+ itemAfter['item_description']+", Before: "+ itemBefore['item_description']);
+        console.log("After: "+ itemAfter['item_price_description']+", Before: "+ itemBefore['item_price_description']);
+
         if (itemAfter['item_name'] === itemBefore['item_name']
             && itemAfter['item_description'] === itemBefore['item_description']
             && itemAfter['item_price_description'] === itemBefore['item_price_description'] ){
+
+            console.log("Item has no new data");
+
             return null;
         }else {
+            console.log("Item has updated data");
+
             const itemName = itemAfter['item_name'];
             const itemDescription: string = itemAfter['item_description'];
             const itemPriceDescription: string = itemAfter['item_price_description'];
             const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
 
-            console.log("Item has updated data");
+            // const itemTFIDFMap:Map<string, number> = itemAfter['item_tf'];
+            //
+            // itemTFIDFMap.forEach((value: number, key:string)=>{
+            //    console.log(key, value);
+            // });
             return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc});
         }
     });
