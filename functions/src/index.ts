@@ -9,6 +9,13 @@ admin.initializeApp();
 //  response.send("Hello from Firebase!");
 // });
 
+//hashmap support using eval()
+// var map;
+// console.log("Item has no new data");
+// eval("map = {a: 'aaa', b: 'baz', c: 'cat'}");
+// console.log(map);
+// return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_tf: map});
+
 exports.logNewUser = functions.region('asia-northeast1').firestore
 .document('Users/{user}')
 .onCreate((documentSnapshot, context) =>{
@@ -54,11 +61,6 @@ export const onItemDocUpdate = functions
         if (itemAfter['item_name'] === itemBefore['item_name']
             && itemAfter['item_description'] === itemBefore['item_description']
             && itemAfter['item_price_description'] === itemBefore['item_price_description'] ){
-            // var map;
-            // console.log("Item has no new data");
-            // eval("map = {a: 'aaa', b: 'baz', c: 'cat'}");
-            // console.log(map);
-            // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_tf: map});
             return null;
         }else {
             const itemName = itemAfter['item_name'];
