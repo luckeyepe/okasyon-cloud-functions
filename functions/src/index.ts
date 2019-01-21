@@ -37,75 +37,127 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     const item = snapshot.data();
     const itemName = item['item_name'];
     const storeUid = item['item_store_id'];
+    const itemDescription: string = item['item_description'];
+    const itemPriceDescription: string = item['item_price_description'];
+    const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
+
     console.log("Item Name: "+itemName);
     console.log("Store ID: "+storeUid);
+
+    return snapshot.ref.update({item_doc: itemDoc})
 });
 
-function removeArticleEnglishWords(dirtyString: string):string[] {
-    const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
-    "yet", "it", "they", "him", "her", "them", "of"];
+export const onItemUpdate = functions
+    .firestore
+    .document('Items/{itemID}').onUpdate((change, context) =>{
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
 
-    var dirtyStringArray: string[] = dirtyString.replace(/[^\w\s]|_/g,
-        function ($1) { return ' ' + $1 + ' ';})
-        .replace(/[ ]+/g, ' ')
-        .split(' ');
+        if (itemAfter['item_doc'] === itemBefore['item_doc']){
+            console.log("Item has no new data");
+            return null;
+        }else {
+            const itemName = itemAfter['item_name'];
+            const itemDescription: string = itemAfter['item_description'];
+            const itemPriceDescription: string = itemAfter['item_price_description'];
+            const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
 
-    var placeholderStringArray:string[] = new Array(1000);
-    var count:number = 0;
-
-    for(let i=0; i<dirtyStringArray.length; i++){
-        for (let j=0; j<articleWordsArray.length; j++){
-            if (dirtyStringArray[i] !== articleWordsArray[j]){
-                // placeholderStringArray.push(dirtyStringArray[i]);
-                placeholderStringArray[count] = dirtyStringArray[i];
-                count++;
-                break;
-            }
+            console.log("Item has updated data");
+            return itemAfter.ref.update({item_doc: itemDoc})
         }
-    }
-
-    var cleanStringArray:string[] = new Array(count);
-
-    //remove single characters
-    for(var k=0; k<count; k++){
-        if (placeholderStringArray[k].length !== 1) {
-            cleanStringArray[k] = placeholderStringArray[k];
-        }
-        console.log("Remove articles "+k+cleanStringArray[k]);
-    }
-
-    return cleanStringArray;
-}
-
-exports.modifyItems = functions.region('asia-northeast1').firestore
-    .document('Items/{itemID}')
-    .onWrite((change, context) => {
-        // Get an object with the current document value.
-        // If the document does not exist, it has been deleted.
-        const data = change.after.data();
-        const previousData = change.before.data();
-        
-        if (change['item_docs'] !== previousData['item_docs']) {
-
-            if (change.after.exists) {
-                //todo
-                const itemDocument = change.after.data();
-                const itemName: string = itemDocument['item_name'];
-                const itemDescription: string = itemDocument['item_description'];
-                const itemPriceDescription: string = itemDocument['item_price_description'];
-                const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
-
-                //clean up comm
-                var cleanStringArray = removeArticleEnglishWords(itemDirtyString.toLocaleLowerCase());
-
-
-                //update data (be careful of infinite loops)
-
-
-            } else {
-                //todo rebuild tfidf
-            }
-        }
-
-
     });
+//
+// function cleanAndWriteMap(dirtyString: string): Map<string, number>{
+//     const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
+//     "yet", "it", "they", "him", "her", "them", "of"];
+//
+//     var dirtyStringArray: string[] = dirtyString.replace(/[^\w\s]|_/g,
+//         function ($1) { return ' ' + $1 + ' ';})
+//         .replace(/[ ]+/g, ' ')
+//         .split(' ');
+//
+//     var placeholderStringArray:string[] = new Array(1000);
+//     var count:number = 0;
+//
+//     for(let i=0; i<dirtyStringArray.length; i++){
+//         for (let j=0; j<articleWordsArray.length; j++){
+//             if (dirtyStringArray[i] !== articleWordsArray[j]){
+//                 // placeholderStringArray.push(dirtyStringArray[i]);
+//                 placeholderStringArray[count] = dirtyStringArray[i];
+//                 count++;
+//                 break;
+//             }
+//         }
+//     }
+//
+//     var cleanStringArray:string[] = new Array(count);
+//
+//     //remove single characters
+//     for(var k=0; k<count; k++){
+//         if (placeholderStringArray[k].length !== 1) {
+//             cleanStringArray[k] = placeholderStringArray[k];
+//         }
+//         console.log("Remove articles "+k+cleanStringArray[k]);
+//     }
+//
+//     var uniqueWords: string[] = new Array(cleanStringArray.length);
+//     var uniqueWordMap = new Map<string, number>();
+//
+//     for(let i=0; i<cleanStringArray.length; i++){
+//         if (uniqueWords.indexOf(cleanStringArray[i]) === null){
+//             uniqueWords.push(cleanStringArray[i]);
+//             uniqueWordMap.set(cleanStringArray[i], 1);
+//         }else {
+//             uniqueWordMap.set(cleanStringArray[i], uniqueWordMap.get(cleanStringArray[i])+1);
+//         }
+//         // if (placeholderStringArray[k].length !== 1) {
+//         //     cleanStringArray[k] = placeholderStringArray[k];
+//         // }
+//         // console.log("Remove articles "+k+cleanStringArray[k]);
+//     }
+//
+//     return uniqueWordMap;
+// }
+//
+//
+// exports.modifyItems = functions.region('asia-northeast1').firestore
+//     .document('Items/{itemID}')
+//     .onWrite((change, context) => {
+//         // // Get an object with the current document value.
+//         // // If the document does not exist, it has been deleted.
+//         // const data = change.after.data();
+//         // const previousData = change.before.data();
+//         //
+//         // if (change['item_docs'] !== previousData['item_docs']) {
+//         //
+//         //
+//         // }
+//
+//         if (change.after.exists) {
+//             const itemDocument = change.after.data();
+//             const itemUid: string = itemDocument['item_uid'];
+//             const itemName: string = itemDocument['item_name'];
+//             const itemDescription: string = itemDocument['item_description'];
+//             const itemPriceDescription: string = itemDocument['item_price_description'];
+//             const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
+//
+//             //clean up comm
+//             return change.after.ref.update({
+//                 item_doc: cleanAndWriteMap(itemDirtyString.toLocaleLowerCase())
+//             });
+//         } else {
+//             const itemDocument = change.after.data();
+//             const itemUid: string = itemDocument['item_uid'];
+//             const itemName: string = itemDocument['item_name'];
+//             const itemDescription: string = itemDocument['item_description'];
+//             const itemPriceDescription: string = itemDocument['item_price_description'];
+//             const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
+//
+//             //clean up comm
+//             return change.before.ref.update({
+//                 item_doc: cleanAndWriteMap(itemDirtyString.toLocaleLowerCase())
+//             });
+//         }
+//
+//
+//     });
