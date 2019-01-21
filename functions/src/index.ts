@@ -63,7 +63,7 @@ export const onItemUpdate = functions
             const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
 
             console.log("Item has updated data");
-            return itemAfter.ref.update({item_doc: itemDoc})
+            return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc});
         }
     });
 //
