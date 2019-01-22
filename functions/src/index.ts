@@ -43,14 +43,11 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     const item = snapshot.data();
     const itemName = item['item_name'];
     const storeUid = item['item_store_id'];
-    const itemDescription: string = item['item_description'];
-    const itemPriceDescription: string = item['item_price_description'];
-    const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
 
     console.log("Item Name: "+itemName);
     console.log("Store ID: "+storeUid);
 
-    return admin.firestore().collection('Items').doc(item['item_uid']).update({item_doc: itemDoc});
+    return null;
 });
 
 //rename this function
@@ -63,10 +60,12 @@ export const onItemDocUpdate = functions
         console.log("After: "+ itemAfter['item_name']+", Before: "+ itemBefore['item_name']);
         console.log("After: "+ itemAfter['item_description']+", Before: "+ itemBefore['item_description']);
         console.log("After: "+ itemAfter['item_price_description']+", Before: "+ itemBefore['item_price_description']);
+        console.log("After: "+ itemAfter['item_uid']+", Before: "+ itemBefore['item_uid']);
 
         if (itemAfter['item_name'] === itemBefore['item_name']
             && itemAfter['item_description'] === itemBefore['item_description']
-            && itemAfter['item_price_description'] === itemBefore['item_price_description'] ){
+            && itemAfter['item_price_description'] === itemBefore['item_price_description']
+            && itemAfter['item_uid'] === itemBefore['item_uid']){
 
             console.log("Item has no new data");
 
@@ -88,6 +87,40 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
 
+        if (itemAfter['item_doc'] === itemBefore['item_doc']){
+
+            console.log("Item has no new data, no need to update tfidf");
+
+            return null;
+        }else {
+            console.log("Item has updated data");
+            const itemDoc:string = itemAfter['item_doc'];
+            let uniqueWordCount:number = 0;
+            let totalWordCount:number;
+            let uniqueWordArray:string[] = [];
+            let wordCountArray:number[] = [];
+
+            const cleanWordArray = itemDoc.split(' ');
+            totalWordCount = cleanWordArray.length;
+
+            for (let i=0; i<cleanWordArray.length; i++){
+                if (!arrayContains(uniqueWordArray, cleanWordArray[i])){
+                    uniqueWordArray.push(cleanWordArray[i]);
+                    uniqueWordCount++;
+                    wordCountArray.push(1);
+                }else {
+                    const uniqueWordIndex = uniqueWordArray.indexOf(cleanWordArray[i]);
+                    wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
+                }
+            }
+
+            return admin.firestore().collection('TF').doc(itemAfter['item_uid']).set({
+                tf_unique_word_count: uniqueWordCount,
+                tf_total_word_count: totalWordCount,
+                tf_unique_words: uniqueWordArray,
+                tf_unique_words_count: wordCountArray
+            });
+        }
         // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
         //     .then(doc =>{
         //         let test:number[] = [1,0,23,43];
@@ -99,7 +132,16 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
         //     });
     });
 
-export const updateItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
+function arrayContains(badWords: string[], word: string):boolean {
+    return badWords.indexOf(word) > -1;
+}
+
+function isNumber(value: string | number): boolean
+{
+    return !isNaN(Number(value.toString()));
+}
+
+export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
     .onUpdate((change, context) =>{
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
@@ -111,6 +153,8 @@ export const updateItemDoc = functions.region('asia-northeast1').firestore.docum
             console.log('This item has new data');
             //clean the document string
             const dirtyString:string = itemAfter['item_doc'];
+            const badWords:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
+                "yet", "it", "they", "him", "her", "them", "of"];
 
             const dirtyStringArray: string[] = dirtyString
                 .replace(/[^\w\s]|_/g, function ($1) {
@@ -123,7 +167,13 @@ export const updateItemDoc = functions.region('asia-northeast1').firestore.docum
 
             for (var i=0; i<dirtyStringArray.length;i++){
                 if (dirtyStringArray[i].length>1){
-                    cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+                    if (!arrayContains(badWords, dirtyStringArray[i])){
+                        cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+                    }
+                }else {
+                    if (isNumber(+dirtyStringArray[i])){
+                        cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+                    }
                 }
             }
 
@@ -131,6 +181,9 @@ export const updateItemDoc = functions.region('asia-northeast1').firestore.docum
             for (let k=0; k<cleanStringArray.length; k++){
                 cleanDoc = cleanDoc.concat(' ',cleanStringArray[k]);
             }
+
+            cleanDoc = cleanDoc.trimLeft();
+            cleanDoc = cleanDoc.trimRight();
 
             return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({
                 item_doc:cleanDoc
