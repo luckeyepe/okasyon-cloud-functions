@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from'firebase-admin';
+import {TestModel} from "./TestModel";
 admin.initializeApp();
 
 // // Start writing Firebase Functions
@@ -52,6 +53,7 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     return admin.firestore().collection('Items').doc(item['item_uid']).update({item_doc: itemDoc});
 });
 
+//rename this function
 export const onItemDocUpdate = functions
     .firestore
     .document('Items/{itemID}').onUpdate((change, context) =>{
@@ -77,15 +79,74 @@ export const onItemDocUpdate = functions
             const itemPriceDescription: string = itemAfter['item_price_description'];
             const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
 
-            // const itemTFIDFMap:Map<string, number> = itemAfter['item_tf'];
-            //
-            // itemTFIDFMap.forEach((value: number, key:string)=>{
-            //    console.log(key, value);
-            // });
             return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc});
         }
     });
-//
+
+export const updateTFIDF = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
+    .onUpdate((change, context) =>{
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
+        //     .then(doc =>{
+        //         let test:number[] = [1,0,23,43];
+        //         console.log('Writing test model');
+        //         return admin.firestore().collection('Test').add({
+        //             arr1: test,
+        //             arr2: ['a', 'e','u']
+        //         })
+        //     });
+    });
+
+export const updateItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
+    .onUpdate((change, context) =>{
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['item_doc'] === itemBefore['item_doc']){
+            console.log('This item has no new name, description, or price description');
+            return null;
+        } else {
+            console.log('This item has new data');
+            //clean the document string
+            const dirtyString:string = itemAfter['item_doc'];
+
+            const dirtyStringArray: string[] = dirtyString
+                .replace(/[^\w\s]|_/g, function ($1) {
+                    return ' ' + $1 + ' ';
+                })
+                .replace(/[ ]+/g, ' ')
+                .split(' ');
+
+            let cleanStringArray: string[] = [];
+
+            for (var i=0; i<dirtyStringArray.length;i++){
+                if (dirtyStringArray[i].length>1){
+                    cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+                }
+            }
+
+            let cleanDoc = '';
+            for (let k=0; k<cleanStringArray.length; k++){
+                cleanDoc = cleanDoc.concat(' ',cleanStringArray[k]);
+            }
+
+            return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({
+                item_doc:cleanDoc
+            })
+        }
+
+        // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
+        //     .then(doc =>{
+        //         let test:number[] = [1,0,23,43];
+        //         console.log('Writing test model');
+        //         return admin.firestore().collection('Test').add({
+        //             arr1: test,
+        //             arr2: ['a', 'e','u']
+        //         })
+        //     });
+    });
 // function cleanAndWriteMap(dirtyString: string): Map<string, number>{
 //     const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
 //     "yet", "it", "they", "him", "her", "them", "of"];
