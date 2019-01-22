@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from'firebase-admin';
 import {TestModel} from "./TestModel";
+import {document} from "firebase-functions/lib/providers/firestore";
 admin.initializeApp();
 
 // // Start writing Firebase Functions
@@ -114,11 +115,23 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
                 }
             }
 
-            return admin.firestore().collection('TF').doc(itemAfter['item_uid']).set({
+            return admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id']).doc(itemAfter['item_uid']).set({
                 tf_unique_word_count: uniqueWordCount,
                 tf_total_word_count: totalWordCount,
                 tf_unique_words: uniqueWordArray,
-                tf_unique_words_count: wordCountArray
+                tf_unique_words_count: wordCountArray,
+                tf_item_uid: itemAfter['item_uid']
+            }).then(doc=>{
+                admin.firestore().collection('TF').doc(itemAfter['item_category_id'])
+                    .get()
+                    .then(snapshot =>{
+                        // let size = snapshot.
+                    });
+
+
+                return admin.firestore().collection('TF').doc(itemAfter['item_category_id']).update({
+                    tf_item_category_number_of_items: 2
+                })
             });
         }
         // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
