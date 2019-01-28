@@ -11,13 +11,6 @@ admin.initializeApp();
 //  response.send("Hello from Firebase!");
 // });
 
-//hashmap support using eval()
-// var map;
-// console.log("Item has no new data");
-// eval("map = {a: 'aaa', b: 'baz', c: 'cat'}");
-// console.log(map);
-// return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_tf: map});
-
 exports.logNewUser = functions.region('asia-northeast1').firestore
 .document('Users/{user}')
 .onCreate((documentSnapshot, context) =>{
@@ -40,18 +33,49 @@ exports.logNewStores = functions.region('asia-northeast1').firestore
 
 exports.logNewItems = functions.region('asia-northeast1').firestore
 .document('Items/{item}')
-.onCreate((snapshot, context) =>{
+.onCreate((snapshot, context) => {
     const item = snapshot.data();
     const itemName = item['item_name'];
     const storeUid = item['item_store_id'];
 
-    console.log("Item Name: "+itemName);
-    console.log("Store ID: "+storeUid);
+    console.log("Item Name: " + itemName);
+    console.log("Store ID: " + storeUid);
+    return admin.firestore().collection('Number_of_Items').doc(item['item_category_id'])
+        .get()
+        .then(function (doc) {
+            const result = doc.data();
+            console.log("Result Data: "+result);
+            const itemCount = Number(result['number_of_items_in_category']);
+            console.log(item['item_category_id']+" Count: "+itemCount);
 
-    return null;
+            return admin.firestore().collection('Number_of_Items').doc(item['item_category_id']).update({
+                number_of_items_in_category: itemCount + 1,
+                number_of_items_item_category: item['item_category_id']
+            }).then(function (totalItems) {
+                admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
+                    if (totalDoc.exists) {
+                        const totalResult = totalDoc.data();
+                        let totalItemCount = Number(totalResult['number_of_items_in_category']);
+
+                        console.log("Total Item Count"+totalItemCount);
+
+                        totalItemCount = totalItemCount+1;
+
+                        return admin.firestore().collection('Number_of_Items').doc('Total').update({
+                            number_of_items_in_category: totalItemCount,
+                            number_of_items_item_category: 'Total'
+                        });
+                    }else {
+                        console.log('No such document!');
+                        return null;
+                    }
+                }).catch(function (error) {
+                    console.log("Error getting total doc: "+ error);
+                });
+            });
+        });
 });
 
-//rename this function
 export const onItemDocUpdate = functions
     .firestore
     .document('Items/{itemID}').onUpdate((change, context) =>{
@@ -98,22 +122,22 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
             const itemDoc:string = itemAfter['item_doc'];
             let uniqueWordCount:number = 0;
             let totalWordCount:number;
-            let uniqueWordArray:string[] = [];
-            let wordCountArray:number[] = [];
+            const uniqueWordArray:string[] = [];
+            const wordCountArray:number[] = [];
 
             const cleanWordArray = itemDoc.split(' ');
             totalWordCount = cleanWordArray.length;
 
-            for (let i=0; i<cleanWordArray.length; i++){
-                if (!arrayContains(uniqueWordArray, cleanWordArray[i])){
-                    uniqueWordArray.push(cleanWordArray[i]);
+            cleanWordArray.forEach(function (cleanWord) {
+                if (!arrayContains(uniqueWordArray, cleanWord)){
+                    uniqueWordArray.push(cleanWord);
                     uniqueWordCount++;
                     wordCountArray.push(1);
                 }else {
-                    const uniqueWordIndex = uniqueWordArray.indexOf(cleanWordArray[i]);
+                    const uniqueWordIndex = uniqueWordArray.indexOf(cleanWord);
                     wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
                 }
-            }
+            });
 
             return admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id']).doc(itemAfter['item_uid']).set({
                 tf_unique_word_count: uniqueWordCount,
@@ -121,18 +145,18 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
                 tf_unique_words: uniqueWordArray,
                 tf_unique_words_count: wordCountArray,
                 tf_item_uid: itemAfter['item_uid']
-            }).then(doc=>{
-                admin.firestore().collection('TF').doc(itemAfter['item_category_id'])
-                    .get()
-                    .then(snapshot =>{
-                        // let size = snapshot.
-                    });
-
-
-                return admin.firestore().collection('TF').doc(itemAfter['item_category_id']).update({
-                    tf_item_category_number_of_items: 2
-                })
-            });
+            })
+                // .then(doc=>{
+            //     admin.firestore().collection('TF').doc(itemAfter['item_category_id'])
+            //         .get()
+            //         .then(snapshot =>{
+            //             // let size = snapshot.
+            //         });
+            //
+            //     return admin.firestore().collection('TF').doc(itemAfter['item_category_id']).update({
+            //         tf_item_category_number_of_items: 2
+            //     })
+            // });
         }
         // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
         //     .then(doc =>{
@@ -151,7 +175,8 @@ function arrayContains(badWords: string[], word: string):boolean {
 
 function isNumber(value: string | number): boolean
 {
-    return !isNaN(Number(value.toString()));
+    return !isNaN(Number(value));
+    // return !isNaN(Number(value.toString()));
 }
 
 export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
@@ -176,24 +201,52 @@ export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.doc
                 .replace(/[ ]+/g, ' ')
                 .split(' ');
 
-            let cleanStringArray: string[] = [];
+            const cleanStringArray: string[] = [];
 
-            for (var i=0; i<dirtyStringArray.length;i++){
-                if (dirtyStringArray[i].length>1){
-                    if (!arrayContains(badWords, dirtyStringArray[i])){
-                        cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+            console.log('Dirty string array '+dirtyStringArray);
+
+            dirtyStringArray.forEach(function (dirtyWord){
+                console.log('Dirty Word'+dirtyWord);
+                if (dirtyWord.length>1){
+                    if (!arrayContains(badWords, dirtyWord)){
+                        cleanStringArray.push(dirtyWord.toLowerCase());
                     }
                 }else {
-                    if (isNumber(+dirtyStringArray[i])){
-                        cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+                    if (isNumber(+dirtyWord)){
+                        cleanStringArray.push(dirtyWord.toLowerCase());
                     }
                 }
-            }
+            });
+
+            // for (const dirtyWord in dirtyStringArray){
+            //     console.log('Dirty Word'+dirtyWord);
+            //     if (dirtyWord.length>1){
+            //         if (!arrayContains(badWords, dirtyWord)){
+            //             cleanStringArray.push(dirtyWord.toLowerCase());
+            //         }
+            //     }else {
+            //         if (isNumber(+dirtyWord)){
+            //             cleanStringArray.push(dirtyWord.toLowerCase());
+            //         }
+            //     }
+            // }
+            // for (var i=0; i<dirtyStringArray.length;i++){
+            //     if (dirtyStringArray[i].length>1){
+            //         if (!arrayContains(badWords, dirtyStringArray[i])){
+            //             cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+            //         }
+            //     }else {
+            //         if (isNumber(+dirtyStringArray[i])){
+            //             cleanStringArray.push(dirtyStringArray[i].toLowerCase());
+            //         }
+            //     }
+            // }
 
             let cleanDoc = '';
-            for (let k=0; k<cleanStringArray.length; k++){
-                cleanDoc = cleanDoc.concat(' ',cleanStringArray[k]);
-            }
+
+            cleanStringArray.forEach(function (cleanWord) {
+                cleanDoc = cleanDoc.concat(' ',cleanWord);
+            });
 
             cleanDoc = cleanDoc.trimLeft();
             cleanDoc = cleanDoc.trimRight();
