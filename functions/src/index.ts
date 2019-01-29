@@ -50,7 +50,6 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
 
             return admin.firestore().collection('Number_of_Items').doc(item['item_category_id']).update({
                 number_of_items_in_category: itemCount + 1,
-                number_of_items_item_category: item['item_category_id']
             }).then(function (totalItems) {
                 admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
                     if (totalDoc.exists) {
@@ -75,6 +74,53 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
             });
         });
 });
+
+export const onItemDelete = functions
+    .firestore
+    .document('Items/{itemID}')
+    .onDelete((snapshot, context) => {
+       const deletedItem = snapshot.data();
+       const itemName = deletedItem['item_name'];
+       const storeUid = deletedItem['item_store_id'];
+
+       console.log("Item Name: " + itemName);
+       console.log("Store ID: " + storeUid);
+       return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id'])
+           .get()
+           .then(function (doc) {
+               const result = doc.data();
+
+               console.log("Result Data: "+result);
+
+               const itemCount = Number(result['number_of_items_in_category']);
+               console.log(deletedItem['item_category_id']+" Count: "+itemCount);
+
+               return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id']).update({
+                   number_of_items_in_category: itemCount - 1,
+               }).then(function (totalItems) {
+                   admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
+                       if (totalDoc.exists) {
+                           const totalResult = totalDoc.data();
+                           let totalItemCount = Number(totalResult['number_of_items_in_category']);
+
+                           console.log("Total Item Count"+totalItemCount);
+
+                           totalItemCount = totalItemCount-1;
+
+                           return admin.firestore().collection('Number_of_Items').doc('Total').update({
+                               number_of_items_in_category: totalItemCount,
+                               number_of_items_item_category: 'Total'
+                           });
+                       }else {
+                           console.log('No such document!');
+                           return null;
+                       }
+                   }).catch(function (error) {
+                       console.log("Error getting total doc: "+ error);
+                   });
+               });
+           });
+    });
 
 export const onItemDocUpdate = functions
     .firestore
@@ -107,7 +153,7 @@ export const onItemDocUpdate = functions
         }
     });
 
-export const updateTFIDF = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
+export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
     .onUpdate((change, context) =>{
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
@@ -139,12 +185,19 @@ export const updateTFIDF = functions.region('asia-northeast1').firestore.documen
                 }
             });
 
+            const tfArray:number[] = [];
+
+            for(let i =0; i<wordCountArray.length; i++){
+                tfArray[i] = (wordCountArray[i])/totalWordCount;
+            }
+
             return admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id']).doc(itemAfter['item_uid']).set({
                 tf_unique_word_count: uniqueWordCount,
                 tf_total_word_count: totalWordCount,
                 tf_unique_words: uniqueWordArray,
                 tf_unique_words_count: wordCountArray,
-                tf_item_uid: itemAfter['item_uid']
+                tf_item_uid: itemAfter['item_uid'],
+                tf_tf_score: tfArray
             })
                 // .then(doc=>{
             //     admin.firestore().collection('TF').doc(itemAfter['item_category_id'])
