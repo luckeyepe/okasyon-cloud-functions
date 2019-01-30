@@ -199,27 +199,65 @@ export const updateTF = functions.region('asia-northeast1').firestore.document('
                 tf_item_uid: itemAfter['item_uid'],
                 tf_tf_score: tfArray
             })
-                // .then(doc=>{
-            //     admin.firestore().collection('TF').doc(itemAfter['item_category_id'])
-            //         .get()
-            //         .then(snapshot =>{
-            //             // let size = snapshot.
-            //         });
-            //
-            //     return admin.firestore().collection('TF').doc(itemAfter['item_category_id']).update({
-            //         tf_item_category_number_of_items: 2
-            //     })
-            // });
+
         }
-        // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
-        //     .then(doc =>{
-        //         let test:number[] = [1,0,23,43];
-        //         console.log('Writing test model');
-        //         return admin.firestore().collection('Test').add({
-        //             arr1: test,
-        //             arr2: ['a', 'e','u']
-        //         })
-        //     });
+    });
+
+
+// export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}').onUpdate((change, context) =>{
+export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
+    .onUpdate((change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            const tfWords:string[] = itemAfter['tf_unique_words'];
+            const tfItemUid:string = itemAfter['tf_item_uid'];
+            const idfWords:string[] = [];
+            const idfWeight: number[] = [];
+            const db = admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries');
+
+            tfWords.forEach(function (tfword) {
+                idfWords.push(tfword);
+                idfWeight.push(1);
+                const query = db.where("tf_unique_words", "array-contains", tfword);
+                query.get().then(function (itemDoc) {
+                    if (!itemDoc.empty){
+                        const numberOfDocs = itemDoc.size;
+                        console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
+
+                        admin.firestore().collection('Number_of_Items')
+                            .doc('Cake_and_Pastries')
+                            .get()
+                            .then(function (numberDoc){
+                                const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
+                                const idfOfWord = (Math.log(numberOfDocs/numberOfCakesAndPastries)+1);
+                                idfWeight.push(idfOfWord);
+                                console.log("Word IDF: "+idfOfWord);
+                                console.log(idfWeight);
+                            })
+                    }else {
+                        console.log("No such document!");
+                    }
+                })
+            });
+
+            console.log("IDF weight array outside of loop: "+idfWeight);
+
+            admin.firestore()
+                .collection('IDF')
+                .doc('idf')
+                .collection('Cake_and_Pastries')
+                .doc(tfItemUid).set({
+                idf_item_uid: tfItemUid,
+                idf_words: idfWords,
+                idf_weight: idfWeight
+            });
+        }
     });
 
 function arrayContains(badWords: string[], word: string):boolean {
