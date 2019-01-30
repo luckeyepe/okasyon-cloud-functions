@@ -219,7 +219,11 @@ async function getNumberOfItemsInCategory(itemCategory: string): Promise<number>
         .doc(itemCategory)
         .get();
     const data = snapshot.data();
-    return data['number_of_items_in_category'];
+    const numberOfItems:number = data['number_of_items_in_category'];
+
+    console.log("Method: Number of Items in the category: Cake_and_Pastries is "+numberOfItems);
+
+    return numberOfItems;
 }
 
 async function getItemsThatContainAWord(word: string, itemCategory: string): Promise<string[]>{
@@ -235,12 +239,35 @@ async function getItemsThatContainAWord(word: string, itemCategory: string): Pro
         itemIDArray.push(document.data()['tf_item_uid'])
     });
 
+    console.log("Method: Number of Items that the word: "+word+" exist is "+itemIDArray.length);
+
     return itemIDArray;
 }
 
+
+async function getIDFWeightArray(tfWords: string[]):Promise<number[]> {
+    const promiseArray: number[] = [];
+    const numberOfItems = await getNumberOfItemsInCategory('Cake_and_Pastries');
+    console.log("Number of Items in the category: Cake_and_Pastries is " + numberOfItems);
+
+    for(const tfword in tfWords){
+        const resultItemArray = await getItemsThatContainAWord(tfWords[Number(tfword)], 'Cake_and_Pastries');
+        console.log("Number of Items that the word: " + tfWords[Number(tfword)] + " exist is " + resultItemArray.length);
+
+        const result: number = Math.log(resultItemArray.length / numberOfItems) + 1;
+
+        promiseArray.push(result);
+        console.log("In Loop: Promise Array Value: " + promiseArray);
+    }
+
+    console.log("Outside Loop: Promise Array Value: " + promiseArray);
+    return promiseArray;
+}
+
+
 // export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}').onUpdate((change, context) =>{
 export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
-    .onUpdate((change, context) => {
+    .onUpdate(async (change, context) => {
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
 
@@ -252,107 +279,18 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
 
             const tfWords:string[] = itemAfter['tf_unique_words'];
             const tfItemUid:string = itemAfter['tf_item_uid'];
-            const idfWeight: number[] = [];
-            const db = admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries');
-            let promiseArray: number[] = [];
 
-            admin.firestore().collection('Number_of_Items')
-                .doc('Cake_and_Pastries')
-                .get()
-                .then(function (numberDoc){
-                    const number = Number(numberDoc.data()['number_of_items_in_category']);
-                    console.log("Number of Items in the Cakes and Pastries Category is "+number);
+            const weightArray = await getIDFWeightArray(tfWords);
 
-                    return number;
-                }).then(function (numberOfCakesAndPastries) {
-                    tfWords.forEach(function (tfword) {
-                        const query = db.where("tf_unique_words", "array-contains", tfword);
-                        query.get().then(function (itemDoc) {
-                            if (!itemDoc.empty){
-                                const numberOfDocs = itemDoc.size;
-
-                                console.log("Number of Items in the Cakes and Pastries Category is "+numberOfCakesAndPastries);
-                                console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
-
-                                let idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
-                                idfOfWord=idfOfWord+1;
-                                idfWeight.push(idfOfWord);
-                                console.log("Word IDF: "+idfOfWord);
-                                console.log(idfWeight);
-                            }else {
-                                console.log("No such document!");
-                            }
-
-                            return idfWeight
-                        }).then(function (array) {
-                            promiseArray = array;
-                            return promiseArray;
-                        });
-                    });
-
-                    console.log("This is the before final weight array: "+promiseArray);
-                    return promiseArray;
-
-                }).then(function (weightArray) {
-                    console.log("This is the final weight array: "+weightArray);
-                    return admin.firestore()
-                        .collection('IDF')
-                        .doc('idf')
-                        .collection('Cake_and_Pastries')
-                        .doc(tfItemUid).set({
-                        idf_item_uid: tfItemUid,
-                        idf_words: tfWords,
-                        idf_weight: weightArray
-                    }).then(function (idfObject) {
-                        console.log("Inserted into Cake and Pastries IDF: " + idfObject)
-                    })
-            })
-
-            // tfWords.forEach(function (tfword) {
-            //     idfWords.push(tfword);
-            //     const query = db.where("tf_unique_words", "array-contains", tfword);
-            //     query.get().then(function (itemDoc) {
-            //         if (!itemDoc.empty){
-            //             const numberOfDocs = itemDoc.size;
-            //             console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
-            //
-            //             admin.firestore().collection('Number_of_Items')
-            //                 .doc('Cake_and_Pastries')
-            //                 .get()
-            //                 .then(function (numberDoc){
-            //                     const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
-            //                     const idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
-            //                     idfWeight.push(idfOfWord+1);
-            //                     console.log("Word IDF: "+idfOfWord+1);
-            //                     console.log(idfWeight);
-            //
-            //                     admin.firestore()
-            //                         .collection('IDF')
-            //                         .doc('idf')
-            //                         .collection('Cake_and_Pastries')
-            //                         .doc(tfItemUid).set({
-            //                         idf_item_uid: tfItemUid,
-            //                         idf_words: idfWords,
-            //                         idf_weight: idfWeight
-            //                     });
-            //                 })
-            //         }else {
-            //             console.log("No such document!");
-            //         }
-            //     })
-            // });
-
-            // console.log("IDF weight array outside of loop: "+idfWeight);
-            //
-            // admin.firestore()
-            //     .collection('IDF')
-            //     .doc('idf')
-            //     .collection('Cake_and_Pastries')
-            //     .doc(tfItemUid).set({
-            //     idf_item_uid: tfItemUid,
-            //     idf_words: idfWords,
-            //     idf_weight: idfWeight
-            // });
+            return await admin.firestore()
+                .collection('IDF')
+                .doc('idf')
+                .collection('Cake_and_Pastries')
+                .doc(tfItemUid).set({
+                idf_item_uid: tfItemUid,
+                idf_words: tfWords,
+                idf_weight: weightArray
+            });
         }
     });
 
