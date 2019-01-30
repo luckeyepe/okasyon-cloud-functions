@@ -223,7 +223,6 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
 
             tfWords.forEach(function (tfword) {
                 idfWords.push(tfword);
-                idfWeight.push(1);
                 const query = db.where("tf_unique_words", "array-contains", tfword);
                 query.get().then(function (itemDoc) {
                     if (!itemDoc.empty){
@@ -235,10 +234,20 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
                             .get()
                             .then(function (numberDoc){
                                 const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
-                                const idfOfWord = (Math.log(numberOfDocs/numberOfCakesAndPastries)+1);
-                                idfWeight.push(idfOfWord);
-                                console.log("Word IDF: "+idfOfWord);
+                                const idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
+                                idfWeight.push(idfOfWord+1);
+                                console.log("Word IDF: "+idfOfWord+1);
                                 console.log(idfWeight);
+
+                                admin.firestore()
+                                    .collection('IDF')
+                                    .doc('idf')
+                                    .collection('Cake_and_Pastries')
+                                    .doc(tfItemUid).set({
+                                    idf_item_uid: tfItemUid,
+                                    idf_words: idfWords,
+                                    idf_weight: idfWeight
+                                });
                             })
                     }else {
                         console.log("No such document!");
