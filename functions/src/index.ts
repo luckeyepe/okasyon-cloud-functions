@@ -1,7 +1,6 @@
 import * as functions from 'firebase-functions';
-import * as admin from'firebase-admin';
-import {TestModel} from "./TestModel";
-import {document} from "firebase-functions/lib/providers/firestore";
+import * as admin from 'firebase-admin';
+
 admin.initializeApp();
 
 // // Start writing Firebase Functions
@@ -110,7 +109,19 @@ export const onItemDelete = functions
                            return admin.firestore().collection('Number_of_Items').doc('Total').update({
                                number_of_items_in_category: totalItemCount,
                                number_of_items_item_category: 'Total'
-                           });
+                           }).then(function () {
+                               admin.firestore().collection('TF')
+                                   .doc('tf')
+                                   .collection(deletedItem['item_category_id'])
+                                   .doc(deletedItem['item_uid']).delete().then(function () {
+                                       admin.firestore().collection('IDF')
+                                           .doc('idf')
+                                           .collection(deletedItem['item_category_id'])
+                                           .doc(deletedItem['item_uid'])
+                                           .delete()
+                               })
+                           })
+
                        }else {
                            console.log('No such document!');
                            return null;
@@ -203,6 +214,29 @@ export const updateTF = functions.region('asia-northeast1').firestore.document('
         }
     });
 
+async function getNumberOfItemsInCategory(itemCategory: string): Promise<number>{
+    const snapshot = await admin.firestore().collection('Number_of_Items')
+        .doc(itemCategory)
+        .get();
+    const data = snapshot.data();
+    return data['number_of_items_in_category'];
+}
+
+async function getItemsThatContainAWord(word: string, itemCategory: string): Promise<string[]>{
+    const itemIDArray:string[] = [];
+
+    const snapshot = await admin.firestore().collection('TF')
+        .doc('tf').collection(itemCategory).
+        where("tf_unique_words", "array-contains", word).get();
+
+    const docs = snapshot.docs;
+
+    docs.forEach(function (document) {
+        itemIDArray.push(document.data()['tf_item_uid'])
+    });
+
+    return itemIDArray;
+}
 
 // export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}').onUpdate((change, context) =>{
 export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
@@ -215,59 +249,178 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
             return null;
         } else {
             console.log('This TF score of the words in this item has changed');
+
             const tfWords:string[] = itemAfter['tf_unique_words'];
             const tfItemUid:string = itemAfter['tf_item_uid'];
-            const idfWords:string[] = [];
             const idfWeight: number[] = [];
             const db = admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries');
+            let promiseArray: number[] = [];
 
-            tfWords.forEach(function (tfword) {
-                idfWords.push(tfword);
-                const query = db.where("tf_unique_words", "array-contains", tfword);
-                query.get().then(function (itemDoc) {
-                    if (!itemDoc.empty){
-                        const numberOfDocs = itemDoc.size;
-                        console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
+            admin.firestore().collection('Number_of_Items')
+                .doc('Cake_and_Pastries')
+                .get()
+                .then(function (numberDoc){
+                    const number = Number(numberDoc.data()['number_of_items_in_category']);
+                    console.log("Number of Items in the Cakes and Pastries Category is "+number);
 
-                        admin.firestore().collection('Number_of_Items')
-                            .doc('Cake_and_Pastries')
-                            .get()
-                            .then(function (numberDoc){
-                                const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
-                                const idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
-                                idfWeight.push(idfOfWord+1);
-                                console.log("Word IDF: "+idfOfWord+1);
+                    return number;
+                }).then(function (numberOfCakesAndPastries) {
+                    tfWords.forEach(function (tfword) {
+                        const query = db.where("tf_unique_words", "array-contains", tfword);
+                        query.get().then(function (itemDoc) {
+                            if (!itemDoc.empty){
+                                const numberOfDocs = itemDoc.size;
+
+                                console.log("Number of Items in the Cakes and Pastries Category is "+numberOfCakesAndPastries);
+                                console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
+
+                                let idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
+                                idfOfWord=idfOfWord+1;
+                                idfWeight.push(idfOfWord);
+                                console.log("Word IDF: "+idfOfWord);
                                 console.log(idfWeight);
+                            }else {
+                                console.log("No such document!");
+                            }
 
-                                admin.firestore()
-                                    .collection('IDF')
-                                    .doc('idf')
-                                    .collection('Cake_and_Pastries')
-                                    .doc(tfItemUid).set({
-                                    idf_item_uid: tfItemUid,
-                                    idf_words: idfWords,
-                                    idf_weight: idfWeight
-                                });
-                            })
-                    }else {
-                        console.log("No such document!");
-                    }
-                })
-            });
+                            return idfWeight
+                        }).then(function (array) {
+                            promiseArray = array;
+                            return promiseArray;
+                        });
+                    });
 
-            console.log("IDF weight array outside of loop: "+idfWeight);
+                    console.log("This is the before final weight array: "+promiseArray);
+                    return promiseArray;
 
-            admin.firestore()
-                .collection('IDF')
-                .doc('idf')
-                .collection('Cake_and_Pastries')
-                .doc(tfItemUid).set({
-                idf_item_uid: tfItemUid,
-                idf_words: idfWords,
-                idf_weight: idfWeight
-            });
+                }).then(function (weightArray) {
+                    console.log("This is the final weight array: "+weightArray);
+                    return admin.firestore()
+                        .collection('IDF')
+                        .doc('idf')
+                        .collection('Cake_and_Pastries')
+                        .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    }).then(function (idfObject) {
+                        console.log("Inserted into Cake and Pastries IDF: " + idfObject)
+                    })
+            })
+
+            // tfWords.forEach(function (tfword) {
+            //     idfWords.push(tfword);
+            //     const query = db.where("tf_unique_words", "array-contains", tfword);
+            //     query.get().then(function (itemDoc) {
+            //         if (!itemDoc.empty){
+            //             const numberOfDocs = itemDoc.size;
+            //             console.log("For item: "+tfItemUid+", there are "+numberOfDocs+"Documents");
+            //
+            //             admin.firestore().collection('Number_of_Items')
+            //                 .doc('Cake_and_Pastries')
+            //                 .get()
+            //                 .then(function (numberDoc){
+            //                     const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
+            //                     const idfOfWord = Math.log(numberOfDocs/numberOfCakesAndPastries);
+            //                     idfWeight.push(idfOfWord+1);
+            //                     console.log("Word IDF: "+idfOfWord+1);
+            //                     console.log(idfWeight);
+            //
+            //                     admin.firestore()
+            //                         .collection('IDF')
+            //                         .doc('idf')
+            //                         .collection('Cake_and_Pastries')
+            //                         .doc(tfItemUid).set({
+            //                         idf_item_uid: tfItemUid,
+            //                         idf_words: idfWords,
+            //                         idf_weight: idfWeight
+            //                     });
+            //                 })
+            //         }else {
+            //             console.log("No such document!");
+            //         }
+            //     })
+            // });
+
+            // console.log("IDF weight array outside of loop: "+idfWeight);
+            //
+            // admin.firestore()
+            //     .collection('IDF')
+            //     .doc('idf')
+            //     .collection('Cake_and_Pastries')
+            //     .doc(tfItemUid).set({
+            //     idf_item_uid: tfItemUid,
+            //     idf_words: idfWords,
+            //     idf_weight: idfWeight
+            // });
         }
     });
+
+// export const updateCakeAndPastriesIDFBatch = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
+//     .onUpdate((change, context) => {
+//         const itemBefore = change.before.data();
+//         const itemAfter = change.after.data();
+//
+//         if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+//             console.log('This TF score of the words in this item has not changed');
+//             return null;
+//         } else {
+//             console.log('This TF score of the words in this item has changed');
+//
+//             admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries')
+//                 .get()
+//                 .then(function (snapshot) {
+//                     if (!snapshot.empty) {
+//
+//                         snapshot.forEach(function (docSnapshot) {
+//                             const doc = docSnapshot.data();
+//                             const tfWords: string[] = doc['tf_unique_words'];
+//                             const tfItemUid: string = doc['tf_item_uid'];
+//                             const idfWords: string[] = [];
+//                             const idfWeight: number[] = [];
+//                             const db = admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries');
+//
+//                             tfWords.forEach(function (tfword) {
+//                                 idfWords.push(tfword);
+//
+//                                 const query = db.where("tf_unique_words", "array-contains", tfword);
+//
+//                                 query.get().then(function (itemDoc) {
+//                                     if (!itemDoc.empty) {
+//                                         const numberOfDocs = itemDoc.size;
+//
+//                                         console.log("For item: " + tfItemUid + "and the word: "+tfword+
+//                                             ", there are " + numberOfDocs + "Documents");
+//
+//                                         admin.firestore().collection('Number_of_Items')
+//                                             .doc('Cake_and_Pastries')
+//                                             .get()
+//                                             .then(function (numberDoc) {
+//                                                 const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
+//                                                 const idfOfWord = Math.log(numberOfDocs / numberOfCakesAndPastries);
+//                                                 idfWeight.push(idfOfWord + 1);
+//                                                 console.log("Current idf for the item is "+idfWeight);
+//
+//                                                 return admin.firestore()
+//                                                     .collection('IDF')
+//                                                     .doc('idf')
+//                                                     .collection('Cake_and_Pastries')
+//                                                     .doc(tfItemUid).set({
+//                                                     idf_item_uid: tfItemUid,
+//                                                     idf_words: idfWords,
+//                                                     idf_weight: idfWeight
+//                                                 });
+//                                             })
+//                                     } else {
+//                                         console.log("No such document!");
+//                                     }
+//                                 })
+//                             });
+//                         })
+//                     }
+//                 });
+//         }
+//     });
 
 function arrayContains(badWords: string[], word: string):boolean {
     return badWords.indexOf(word) > -1;
@@ -356,15 +509,6 @@ export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.doc
             })
         }
 
-        // return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc})
-        //     .then(doc =>{
-        //         let test:number[] = [1,0,23,43];
-        //         console.log('Writing test model');
-        //         return admin.firestore().collection('Test').add({
-        //             arr1: test,
-        //             arr2: ['a', 'e','u']
-        //         })
-        //     });
     });
 // function cleanAndWriteMap(dirtyString: string): Map<string, number>{
 //     const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
