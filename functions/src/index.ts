@@ -254,7 +254,7 @@ async function getIDFWeightArray(tfWords: string[]):Promise<number[]> {
         const resultItemArray = await getItemsThatContainAWord(tfWords[Number(tfword)], 'Cake_and_Pastries');
         console.log("Number of Items that the word: " + tfWords[Number(tfword)] + " exist is " + resultItemArray.length);
 
-        const result: number = Math.log(resultItemArray.length / numberOfItems) + 1;
+        const result: number = Math.log10(numberOfItems/resultItemArray.length)+1;
 
         promiseArray.push(result);
         console.log("In Loop: Promise Array Value: " + promiseArray);
