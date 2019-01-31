@@ -32,105 +32,186 @@ exports.logNewStores = functions.region('asia-northeast1').firestore
 
 exports.logNewItems = functions.region('asia-northeast1').firestore
 .document('Items/{item}')
-.onCreate((snapshot, context) => {
+.onCreate(async (snapshot, context) => {
     const item = snapshot.data();
     const itemName = item['item_name'];
     const storeUid = item['item_store_id'];
+    const itemUid = item['item_uid'];
+    const itemCategory = item['item_category_id'];
 
     console.log("Item Name: " + itemName);
     console.log("Store ID: " + storeUid);
-    return admin.firestore().collection('Number_of_Items').doc(item['item_category_id'])
-        .get()
-        .then(function (doc) {
-            const result = doc.data();
-            console.log("Result Data: "+result);
-            const itemCount = Number(result['number_of_items_in_category']);
-            console.log(item['item_category_id']+" Count: "+itemCount);
 
-            return admin.firestore().collection('Number_of_Items').doc(item['item_category_id']).update({
-                number_of_items_in_category: itemCount + 1,
-            }).then(function (totalItems) {
-                admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
-                    if (totalDoc.exists) {
-                        const totalResult = totalDoc.data();
-                        let totalItemCount = Number(totalResult['number_of_items_in_category']);
+    //increase the amount of items in an item category
+    const itemCategoryPromise = await admin.firestore()
+        .collection('Number_of_Items')
+        .doc(itemCategory).get();
 
-                        console.log("Total Item Count"+totalItemCount);
+    const increasedCategorySize:number = itemCategoryPromise.data()['number_of_items_in_category'] + 1;
 
-                        totalItemCount = totalItemCount+1;
-
-                        return admin.firestore().collection('Number_of_Items').doc('Total').update({
-                            number_of_items_in_category: totalItemCount,
-                            number_of_items_item_category: 'Total'
-                        });
-                    }else {
-                        console.log('No such document!');
-                        return null;
-                    }
-                }).catch(function (error) {
-                    console.log("Error getting total doc: "+ error);
-                });
-            });
+    const increaseCategoryPromise = await admin.firestore()
+        .collection('Number_of_Items')
+        .doc(itemCategory).update({
+            number_of_items_in_category:  increasedCategorySize
         });
+
+    console.log('Updated the amount of items in the '+itemCategory+' Item Category to '+increasedCategorySize);
+
+    //decrease the total amount of items
+    const totalPromise = await admin.firestore()
+        .collection('Number_of_Items')
+        .doc('Total').get();
+
+    const increasedTotalSize:number = itemCategoryPromise.data()['number_of_items_in_category'] + 1;
+
+    const increaseTotalPromise = await admin.firestore()
+        .collection('Number_of_Items')
+        .doc('Total').update({
+            number_of_items_in_category: increasedCategorySize
+        });
+
+    console.log('Updated the total amount of items to '+ increasedTotalSize);
+
+    return;
+    // return admin.firestore().collection('Number_of_Items').doc(item['item_category_id'])
+    //     .get()
+    //     .then(function (doc) {
+    //         const result = doc.data();
+    //         console.log("Result Data: "+result);
+    //         const itemCount = Number(result['number_of_items_in_category']);
+    //         console.log(item['item_category_id']+" Count: "+itemCount);
+    //
+    //         return admin.firestore().collection('Number_of_Items').doc(item['item_category_id']).update({
+    //             number_of_items_in_category: itemCount + 1,
+    //         }).then(function (totalItems) {
+    //             admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
+    //                 if (totalDoc.exists) {
+    //                     const totalResult = totalDoc.data();
+    //                     let totalItemCount = Number(totalResult['number_of_items_in_category']);
+    //
+    //                     console.log("Total Item Count"+totalItemCount);
+    //
+    //                     totalItemCount = totalItemCount+1;
+    //
+    //                     return admin.firestore().collection('Number_of_Items').doc('Total').update({
+    //                         number_of_items_in_category: totalItemCount,
+    //                         number_of_items_item_category: 'Total'
+    //                     });
+    //                 }else {
+    //                     console.log('No such document!');
+    //                     return null;
+    //                 }
+    //             }).catch(function (error) {
+    //                 console.log("Error getting total doc: "+ error);
+    //             });
+    //         });
+    //     });
 });
 
 export const onItemDelete = functions
     .firestore
     .document('Items/{itemID}')
-    .onDelete((snapshot, context) => {
-       const deletedItem = snapshot.data();
-       const itemName = deletedItem['item_name'];
-       const storeUid = deletedItem['item_store_id'];
+    .onDelete(async (snapshot, context) => {
+        const deletedItem = snapshot.data();
+        const itemName = deletedItem['item_name'];
+        const storeUid = deletedItem['item_store_id'];
+        const itemUid = deletedItem['item_uid'];
+        const itemCategory = deletedItem['item_category_id'];
 
-       console.log("Item Name: " + itemName);
-       console.log("Store ID: " + storeUid);
-       return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id'])
-           .get()
-           .then(function (doc) {
-               const result = doc.data();
+        console.log("Item Name: " + itemName);
+        console.log("Store ID: " + storeUid);
 
-               console.log("Result Data: "+result);
+        //delete item from TF collection
+        const deleteTFPromise = await admin.firestore().doc('TF/tf/'+itemCategory+'/'+itemUid).delete();
+        console.log('Deleted the item: '+itemUid+' from the TF collection');
 
-               const itemCount = Number(result['number_of_items_in_category']);
-               console.log(deletedItem['item_category_id']+" Count: "+itemCount);
+        //delete item from IDF collection
+        const deleteIDFPromise = await admin.firestore().doc('IDF/idf/'+itemCategory+'/'+itemUid).delete();
+        console.log('Deleted the item: '+itemUid+' from the IDF collection');
 
-               return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id']).update({
-                   number_of_items_in_category: itemCount - 1,
-               }).then(function (totalItems) {
-                   admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
-                       if (totalDoc.exists) {
-                           const totalResult = totalDoc.data();
-                           let totalItemCount = Number(totalResult['number_of_items_in_category']);
+        //delete item from Item_Profile collection
+        const deleteItemProfilePromise = await admin.firestore().doc('Item_Profile/'+itemUid).delete();
+        console.log('Deleted the item: '+itemUid+' from the Item_Profile collection');
 
-                           console.log("Total Item Count"+totalItemCount);
+        //decrease the amount of items in an item category
+        const itemCategoryPromise = await admin.firestore()
+            .collection('Number_of_Items')
+            .doc(itemCategory).get();
 
-                           totalItemCount = totalItemCount-1;
+        const decreasedCategorySize:number = itemCategoryPromise.data()['number_of_items_in_category'] - 1;
 
-                           return admin.firestore().collection('Number_of_Items').doc('Total').update({
-                               number_of_items_in_category: totalItemCount,
-                               number_of_items_item_category: 'Total'
-                           }).then(function () {
-                               admin.firestore().collection('TF')
-                                   .doc('tf')
-                                   .collection(deletedItem['item_category_id'])
-                                   .doc(deletedItem['item_uid']).delete().then(function () {
-                                       admin.firestore().collection('IDF')
-                                           .doc('idf')
-                                           .collection(deletedItem['item_category_id'])
-                                           .doc(deletedItem['item_uid'])
-                                           .delete()
-                               })
-                           })
+        const decreaseCategoryPromise = await admin.firestore()
+            .collection('Number_of_Items')
+            .doc(itemCategory).update({
+                number_of_items_in_category: decreasedCategorySize
+            });
 
-                       }else {
-                           console.log('No such document!');
-                           return null;
-                       }
-                   }).catch(function (error) {
-                       console.log("Error getting total doc: "+ error);
-                   });
-               });
-           });
+        console.log('Updated the amount of items in the '+itemCategory+' Item Category to '+decreasedCategorySize);
+
+        //decrease the total amount of items
+        const totalPromise = await admin.firestore()
+            .collection('Number_of_Items')
+            .doc(itemCategory).get();
+
+        const decreasedTotalSize:number = itemCategoryPromise.data()['number_of_items_in_category'] - 1;
+
+        const decreaseTotalPromise = await admin.firestore()
+            .collection('Number_of_Items')
+            .doc('Total').update({
+                number_of_items_in_category: decreasedCategorySize
+            });
+
+        console.log('Updated the total amount of items to '+ decreasedTotalSize);
+        return
+
+
+       // return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id'])
+       //     .get()
+       //     .then(function (doc) {
+       //         const result = doc.data();
+       //
+       //         console.log("Result Data: "+result);
+       //
+       //         const itemCount = Number(result['number_of_items_in_category']);
+       //         console.log(deletedItem['item_category_id']+" Count: "+itemCount);
+       //
+       //         return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id']).update({
+       //             number_of_items_in_category: itemCount - 1,
+       //         }).then(function (totalItems) {
+       //             admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
+       //                 if (totalDoc.exists) {
+       //                     const totalResult = totalDoc.data();
+       //                     let totalItemCount = Number(totalResult['number_of_items_in_category']);
+       //
+       //                     console.log("Total Item Count"+totalItemCount);
+       //
+       //                     totalItemCount = totalItemCount-1;
+       //
+       //                     return admin.firestore().collection('Number_of_Items').doc('Total').update({
+       //                         number_of_items_in_category: totalItemCount,
+       //                         number_of_items_item_category: 'Total'
+       //                     }).then(function () {
+       //                         admin.firestore().collection('TF')
+       //                             .doc('tf')
+       //                             .collection(deletedItem['item_category_id'])
+       //                             .doc(deletedItem['item_uid']).delete().then(function () {
+       //                                 admin.firestore().collection('IDF')
+       //                                     .doc('idf')
+       //                                     .collection(deletedItem['item_category_id'])
+       //                                     .doc(deletedItem['item_uid'])
+       //                                     .delete()
+       //                         })
+       //                     })
+       //
+       //                 }else {
+       //                     console.log('No such document!');
+       //                     return null;
+       //                 }
+       //             }).catch(function (error) {
+       //                 console.log("Error getting total doc: "+ error);
+       //             });
+       //         });
+       //     });
     });
 
 export const onItemDocUpdate = functions
@@ -1134,6 +1215,40 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
         }
     });
 
+//use oncreate because currently the value of the IDF is only updated by creating the IDF document
+export const updateItemProfileofItemBelongingToCakeAndPastries = functions.region('asia-northeast1')
+    .firestore.document('IDF/idf/Cake_and_Pastries/{item}')
+    .onUpdate(async (change, context) => {
+        const itemAfter = change.after.data();
+        const itemBefore = change.before.data();
+
+        if(itemAfter['idf_weight'] !== itemBefore['idf_weight']){
+            const item = itemAfter;
+            const idfWeightArray:number[] = item['idf_weight'];
+            const idfUniqueWords:string[] = item['idf_words'];
+
+            const itemUid = item['idf_item_uid'];
+            const doc = await admin.firestore().doc('TF/tf/Cake_and_Pastries/'+itemUid).get();
+            const tfScoreArray = doc.data()['tf_tf_score'];
+            const tfidfArray:number[] = [];
+
+            for(let i = 0; i<idfUniqueWords.length; i++){
+                tfidfArray.push(tfScoreArray[i]*idfWeightArray[i]);
+            }
+
+            return admin.firestore().collection('Item_Profile')
+                .doc(itemUid)
+                .set({
+                    item_profile_item_uid: itemUid,
+                    item_profile_item_category: 'Cake_and_Pastries',
+                    item_profile_attribute_words: idfUniqueWords,
+                    item_profile_attribute_weights: tfidfArray
+                });
+        }else {
+            return null;
+        }
+    });
+
 function arrayContains(badWords: string[], word: string):boolean {
     return badWords.indexOf(word) > -1;
 }
@@ -1183,30 +1298,6 @@ export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.doc
                 }
             });
 
-            // for (const dirtyWord in dirtyStringArray){
-            //     console.log('Dirty Word'+dirtyWord);
-            //     if (dirtyWord.length>1){
-            //         if (!arrayContains(badWords, dirtyWord)){
-            //             cleanStringArray.push(dirtyWord.toLowerCase());
-            //         }
-            //     }else {
-            //         if (isNumber(+dirtyWord)){
-            //             cleanStringArray.push(dirtyWord.toLowerCase());
-            //         }
-            //     }
-            // }
-            // for (var i=0; i<dirtyStringArray.length;i++){
-            //     if (dirtyStringArray[i].length>1){
-            //         if (!arrayContains(badWords, dirtyStringArray[i])){
-            //             cleanStringArray.push(dirtyStringArray[i].toLowerCase());
-            //         }
-            //     }else {
-            //         if (isNumber(+dirtyStringArray[i])){
-            //             cleanStringArray.push(dirtyStringArray[i].toLowerCase());
-            //         }
-            //     }
-            // }
-
             let cleanDoc = '';
 
             cleanStringArray.forEach(function (cleanWord) {
@@ -1222,97 +1313,3 @@ export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.doc
         }
 
     });
-// function cleanAndWriteMap(dirtyString: string): Map<string, number>{
-//     const articleWordsArray:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
-//     "yet", "it", "they", "him", "her", "them", "of"];
-//
-//     var dirtyStringArray: string[] = dirtyString.replace(/[^\w\s]|_/g,
-//         function ($1) { return ' ' + $1 + ' ';})
-//         .replace(/[ ]+/g, ' ')
-//         .split(' ');
-//
-//     var placeholderStringArray:string[] = new Array(1000);
-//     var count:number = 0;
-//
-//     for(let i=0; i<dirtyStringArray.length; i++){
-//         for (let j=0; j<articleWordsArray.length; j++){
-//             if (dirtyStringArray[i] !== articleWordsArray[j]){
-//                 // placeholderStringArray.push(dirtyStringArray[i]);
-//                 placeholderStringArray[count] = dirtyStringArray[i];
-//                 count++;
-//                 break;
-//             }
-//         }
-//     }
-//
-//     var cleanStringArray:string[] = new Array(count);
-//
-//     //remove single characters
-//     for(var k=0; k<count; k++){
-//         if (placeholderStringArray[k].length !== 1) {
-//             cleanStringArray[k] = placeholderStringArray[k];
-//         }
-//         console.log("Remove articles "+k+cleanStringArray[k]);
-//     }
-//
-//     var uniqueWords: string[] = new Array(cleanStringArray.length);
-//     var uniqueWordMap = new Map<string, number>();
-//
-//     for(let i=0; i<cleanStringArray.length; i++){
-//         if (uniqueWords.indexOf(cleanStringArray[i]) === null){
-//             uniqueWords.push(cleanStringArray[i]);
-//             uniqueWordMap.set(cleanStringArray[i], 1);
-//         }else {
-//             uniqueWordMap.set(cleanStringArray[i], uniqueWordMap.get(cleanStringArray[i])+1);
-//         }
-//         // if (placeholderStringArray[k].length !== 1) {
-//         //     cleanStringArray[k] = placeholderStringArray[k];
-//         // }
-//         // console.log("Remove articles "+k+cleanStringArray[k]);
-//     }
-//
-//     return uniqueWordMap;
-// }
-//
-//
-// exports.modifyItems = functions.region('asia-northeast1').firestore
-//     .document('Items/{itemID}')
-//     .onWrite((change, context) => {
-//         // // Get an object with the current document value.
-//         // // If the document does not exist, it has been deleted.
-//         // const data = change.after.data();
-//         // const previousData = change.before.data();
-//         //
-//         // if (change['item_docs'] !== previousData['item_docs']) {
-//         //
-//         //
-//         // }
-//
-//         if (change.after.exists) {
-//             const itemDocument = change.after.data();
-//             const itemUid: string = itemDocument['item_uid'];
-//             const itemName: string = itemDocument['item_name'];
-//             const itemDescription: string = itemDocument['item_description'];
-//             const itemPriceDescription: string = itemDocument['item_price_description'];
-//             const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
-//
-//             //clean up comm
-//             return change.after.ref.update({
-//                 item_doc: cleanAndWriteMap(itemDirtyString.toLocaleLowerCase())
-//             });
-//         } else {
-//             const itemDocument = change.after.data();
-//             const itemUid: string = itemDocument['item_uid'];
-//             const itemName: string = itemDocument['item_name'];
-//             const itemDescription: string = itemDocument['item_description'];
-//             const itemPriceDescription: string = itemDocument['item_price_description'];
-//             const itemDirtyString: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
-//
-//             //clean up comm
-//             return change.before.ref.update({
-//                 item_doc: cleanAndWriteMap(itemDirtyString.toLocaleLowerCase())
-//             });
-//         }
-//
-//
-//     });
