@@ -1218,36 +1218,63 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
 //use oncreate because currently the value of the IDF is only updated by creating the IDF document
 export const updateItemProfileofItemBelongingToCakeAndPastries = functions.region('asia-northeast1')
     .firestore.document('IDF/idf/Cake_and_Pastries/{item}')
-    .onUpdate(async (change, context) => {
-        const itemAfter = change.after.data();
-        const itemBefore = change.before.data();
+    .onCreate(async (snapshot, context) => {
+        //
+        const item = snapshot.data();
+        const idfWeightArray:number[] = item['idf_weight'];
+        const idfUniqueWords:string[] = item['idf_words'];
 
-        if(itemAfter['idf_weight'] !== itemBefore['idf_weight']){
-            const item = itemAfter;
-            const idfWeightArray:number[] = item['idf_weight'];
-            const idfUniqueWords:string[] = item['idf_words'];
+        const itemUid = item['idf_item_uid'];
+        const doc = await admin.firestore().doc('TF/tf/Cake_and_Pastries/'+itemUid).get();
+        const tfScoreArray = doc.data()['tf_tf_score'];
+        const tfidfArray:number[] = [];
 
-            const itemUid = item['idf_item_uid'];
-            const doc = await admin.firestore().doc('TF/tf/Cake_and_Pastries/'+itemUid).get();
-            const tfScoreArray = doc.data()['tf_tf_score'];
-            const tfidfArray:number[] = [];
-
-            for(let i = 0; i<idfUniqueWords.length; i++){
-                tfidfArray.push(tfScoreArray[i]*idfWeightArray[i]);
-            }
-
-            return admin.firestore().collection('Item_Profile')
-                .doc(itemUid)
-                .set({
-                    item_profile_item_uid: itemUid,
-                    item_profile_item_category: 'Cake_and_Pastries',
-                    item_profile_attribute_words: idfUniqueWords,
-                    item_profile_attribute_weights: tfidfArray
-                });
-        }else {
-            return null;
+        for(let i = 0; i<idfUniqueWords.length; i++){
+            tfidfArray.push(tfScoreArray[i]*idfWeightArray[i]);
         }
+
+        return admin.firestore().collection('Item_Profile')
+            .doc(itemUid)
+            .set({
+                item_profile_item_uid: itemUid,
+                item_profile_item_category: 'Cake_and_Pastries',
+                item_profile_attribute_words: idfUniqueWords,
+                item_profile_attribute_weights: tfidfArray
+            });
     });
+
+// export const updateItemProfileofItemBelongingToCakeAndPastries = functions.region('asia-northeast1')
+//     .firestore.document('IDF/idf/Cake_and_Pastries/{item}')
+//     .onUpdate(async (change, context) => {
+//         const itemAfter = change.after.data();
+//         const itemBefore = change.before.data();
+//
+//         if(itemAfter['idf_weight'] !== itemBefore['idf_weight']){
+//             const item = itemAfter;
+//             const idfWeightArray:number[] = item['idf_weight'];
+//             const idfUniqueWords:string[] = item['idf_words'];
+//
+//             const itemUid = item['idf_item_uid'];
+//             const doc = await admin.firestore().doc('TF/tf/Cake_and_Pastries/'+itemUid).get();
+//             const tfScoreArray = doc.data()['tf_tf_score'];
+//             const tfidfArray:number[] = [];
+//
+//             for(let i = 0; i<idfUniqueWords.length; i++){
+//                 tfidfArray.push(tfScoreArray[i]*idfWeightArray[i]);
+//             }
+//
+//             return admin.firestore().collection('Item_Profile')
+//                 .doc(itemUid)
+//                 .set({
+//                     item_profile_item_uid: itemUid,
+//                     item_profile_item_category: 'Cake_and_Pastries',
+//                     item_profile_attribute_words: idfUniqueWords,
+//                     item_profile_attribute_weights: tfidfArray
+//                 });
+//         }else {
+//             return null;
+//         }
+//     });
 
 function arrayContains(badWords: string[], word: string):boolean {
     return badWords.indexOf(word) > -1;
