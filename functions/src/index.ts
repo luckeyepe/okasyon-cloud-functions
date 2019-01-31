@@ -245,13 +245,13 @@ async function getItemsThatContainAWord(word: string, itemCategory: string): Pro
 }
 
 
-async function getIDFWeightArray(tfWords: string[]):Promise<number[]> {
+async function getIDFWeightArray(tfWords: string[], itemCategory: string):Promise<number[]> {
     const promiseArray: number[] = [];
-    const numberOfItems = await getNumberOfItemsInCategory('Cake_and_Pastries');
+    const numberOfItems = await getNumberOfItemsInCategory(itemCategory);
     console.log("Number of Items in the category: Cake_and_Pastries is " + numberOfItems);
 
     for(const tfword in tfWords){
-        const resultItemArray = await getItemsThatContainAWord(tfWords[Number(tfword)], 'Cake_and_Pastries');
+        const resultItemArray = await getItemsThatContainAWord(tfWords[Number(tfword)], itemCategory);
         console.log("Number of Items that the word: " + tfWords[Number(tfword)] + " exist is " + resultItemArray.length);
 
         const result: number = Math.log10(numberOfItems/resultItemArray.length)+1;
@@ -266,6 +266,34 @@ async function getIDFWeightArray(tfWords: string[]):Promise<number[]> {
 
 
 // export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}').onUpdate((change, context) =>{
+// export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
+//     .onUpdate(async (change, context) => {
+//         const itemBefore = change.before.data();
+//         const itemAfter = change.after.data();
+//
+//         if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+//             console.log('This TF score of the words in this item has not changed');
+//             return null;
+//         } else {
+//             console.log('This TF score of the words in this item has changed');
+//
+//             const tfWords:string[] = itemAfter['tf_unique_words'];
+//             const tfItemUid:string = itemAfter['tf_item_uid'];
+//
+//             const weightArray = await getIDFWeightArray(tfWords);
+//
+//             return await admin.firestore()
+//                 .collection('IDF')
+//                 .doc('idf')
+//                 .collection('Cake_and_Pastries')
+//                 .doc(tfItemUid).set({
+//                 idf_item_uid: tfItemUid,
+//                 idf_words: tfWords,
+//                 idf_weight: weightArray
+//             });
+//         }
+//     });
+
 export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
     .onUpdate(async (change, context) => {
         const itemBefore = change.before.data();
@@ -276,89 +304,835 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
             return null;
         } else {
             console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Cake and Pastries');
 
-            const tfWords:string[] = itemAfter['tf_unique_words'];
-            const tfItemUid:string = itemAfter['tf_item_uid'];
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Cake_and_Pastries').get();
 
-            const weightArray = await getIDFWeightArray(tfWords);
+            const itemDocs = querySnapshot.docs;
 
-            return await admin.firestore()
-                .collection('IDF')
-                .doc('idf')
-                .collection('Cake_and_Pastries')
-                .doc(tfItemUid).set({
-                idf_item_uid: tfItemUid,
-                idf_words: tfWords,
-                idf_weight: weightArray
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Cake_and_Pastries');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Cake_and_Pastries')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
             });
+
+            console.log("The Entire Cake and Pastries IDF has been updated");
+            return null;
         }
     });
 
-// export const updateCakeAndPastriesIDFBatch = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
-//     .onUpdate((change, context) => {
-//         const itemBefore = change.before.data();
-//         const itemAfter = change.after.data();
-//
-//         if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
-//             console.log('This TF score of the words in this item has not changed');
-//             return null;
-//         } else {
-//             console.log('This TF score of the words in this item has changed');
-//
-//             admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries')
-//                 .get()
-//                 .then(function (snapshot) {
-//                     if (!snapshot.empty) {
-//
-//                         snapshot.forEach(function (docSnapshot) {
-//                             const doc = docSnapshot.data();
-//                             const tfWords: string[] = doc['tf_unique_words'];
-//                             const tfItemUid: string = doc['tf_item_uid'];
-//                             const idfWords: string[] = [];
-//                             const idfWeight: number[] = [];
-//                             const db = admin.firestore().collection('TF').doc('tf').collection('Cake_and_Pastries');
-//
-//                             tfWords.forEach(function (tfword) {
-//                                 idfWords.push(tfword);
-//
-//                                 const query = db.where("tf_unique_words", "array-contains", tfword);
-//
-//                                 query.get().then(function (itemDoc) {
-//                                     if (!itemDoc.empty) {
-//                                         const numberOfDocs = itemDoc.size;
-//
-//                                         console.log("For item: " + tfItemUid + "and the word: "+tfword+
-//                                             ", there are " + numberOfDocs + "Documents");
-//
-//                                         admin.firestore().collection('Number_of_Items')
-//                                             .doc('Cake_and_Pastries')
-//                                             .get()
-//                                             .then(function (numberDoc) {
-//                                                 const numberOfCakesAndPastries = numberDoc.data()['number_of_items_in_category'];
-//                                                 const idfOfWord = Math.log(numberOfDocs / numberOfCakesAndPastries);
-//                                                 idfWeight.push(idfOfWord + 1);
-//                                                 console.log("Current idf for the item is "+idfWeight);
-//
-//                                                 return admin.firestore()
-//                                                     .collection('IDF')
-//                                                     .doc('idf')
-//                                                     .collection('Cake_and_Pastries')
-//                                                     .doc(tfItemUid).set({
-//                                                     idf_item_uid: tfItemUid,
-//                                                     idf_words: idfWords,
-//                                                     idf_weight: idfWeight
-//                                                 });
-//                                             })
-//                                     } else {
-//                                         console.log("No such document!");
-//                                     }
-//                                 })
-//                             });
-//                         })
-//                     }
-//                 });
-//         }
-//     });
+export const updateGownsIDF = functions.firestore.document("TF/tf/Gowns/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Gowns');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Gowns').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Gowns');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Gowns')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Gowns IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateCateringServiceIDF = functions.firestore.document("TF/tf/Catering_Service/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Catering Service');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Catering_Service').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Catering_Service');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Catering_Service')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Catering Services IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateChurchIDF = functions.firestore.document("TF/tf/Church/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Church');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Church').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Church');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Church')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Church IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateDJIDF = functions.firestore.document("TF/tf/DJ/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the DJ');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('DJ').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'DJ');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('DJ')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire DJ IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateEventCoordinatorIDF = functions.firestore.document("TF/tf/Event_Coordinator/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Event Coordinator');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Event_Coordinator').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Event_Coordinator');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Event_Coordinator')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Event Coordinator IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateEventEntertainerIDF = functions.firestore.document("TF/tf/Event_Entertainer/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Event Entertainer');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Event_Entertainer').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Event_Entertainer');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Event_Entertainer')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Event Entertainer IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateEventStylistIDF = functions.firestore.document("TF/tf/Event_Stylist/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Event Stylist');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Event_Stylist').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Event_Stylist');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Event_Stylist')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Event Stylist IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateFlowersIDF = functions.firestore.document("TF/tf/Flowers/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Flowers');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Flowers').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Flowers');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Flowers')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Flowers IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateHair_and_Make_upIDF = functions.firestore.document("TF/tf/Hair_and_Make-up/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Hair_and_Make-up');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Hair_and_Make-up').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Hair_and_Make-up');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Hair_and_Make-up')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Hair_and_Make-up IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateHostIDF = functions.firestore.document("TF/tf/Host/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Host');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Host').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Host');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Host')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Host IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateJewelryIDF = functions.firestore.document("TF/tf/Jewelry/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Jewelry');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Jewelry').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Jewelry');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Jewelry')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Jewelry IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateLightsIDF = functions.firestore.document("TF/tf/Lights/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Lights');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Lights').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Lights');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Lights')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Lights IDF has been updated");
+            return null;
+        }
+    });
+
+export const updatePhotographyIDF = functions.firestore.document("TF/tf/Photography/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Photography');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Photography').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Photography');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Photography')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Photography IDF has been updated");
+            return null;
+        }
+    });
+
+export const updatePrintedMaterialsIDF = functions.firestore.document("TF/tf/Printed_Materials/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Printed Materials');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Printed_Materials').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Printed_Materials');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Printed_Materials')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Printed_Materials IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateSoundsIDF = functions.firestore.document("TF/tf/Sounds/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Sounds');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Sounds').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Sounds');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Sounds')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Sounds IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateSuitsIDF = functions.firestore.document("TF/tf/Suits/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Suits');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Suits').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Suits');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Suits')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Suits IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateVenueIDF = functions.firestore.document("TF/tf/Venue/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Venue');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Venue').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Venue');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Venue')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Venue IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateVideographyIDF = functions.firestore.document("TF/tf/Videography/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Videography');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Videography').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Videography');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Videography')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Videography IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Wedding_Vehicle/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Wedding_Vehicle');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Wedding_Vehicle').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray = await getIDFWeightArray(tfWords, 'Wedding_Vehicle');
+
+                return await admin.firestore()
+                    .collection('IDF')
+                    .doc('idf')
+                    .collection('Wedding_Vehicle')
+                    .doc(tfItemUid).set({
+                        idf_item_uid: tfItemUid,
+                        idf_words: tfWords,
+                        idf_weight: weightArray
+                    });
+            });
+
+            console.log("The Entire Wedding_Vehicle IDF has been updated");
+            return null;
+        }
+    });
 
 function arrayContains(badWords: string[], word: string):boolean {
     return badWords.indexOf(word) > -1;
