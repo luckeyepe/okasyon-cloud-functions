@@ -1,5 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import {strictEqual} from "assert";
+import {Console} from "inspector";
 
 admin.initializeApp();
 
@@ -29,6 +31,70 @@ exports.logNewStores = functions.region('asia-northeast1').firestore
     console.log("Store Name: "+storeName);
     console.log("Store Owner ID: "+storeOwnerUid); 
 });
+
+function arrayContains(badWords: string[], word: string):boolean {
+    return badWords.indexOf(word) > -1;
+}
+
+function isNumber(value: string | number): boolean
+{
+    return !isNaN(Number(value));
+}
+
+export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
+    .onUpdate((change, context) =>{
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['item_doc'] === itemBefore['item_doc']){
+            console.log('This item has no new name, description, or price description');
+            return null;
+        } else {
+            console.log('This item has new data');
+            //clean the document string
+            const dirtyString:string = itemAfter['item_doc'];
+            const badWords:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
+                "yet", "it", "they", "him", "her", "them", "of"];
+
+            const dirtyStringArray: string[] = dirtyString
+                .replace(/[^\w\s]|_/g, function ($1) {
+                    return ' ' + $1 + ' ';
+                })
+                .replace(/[ ]+/g, ' ')
+                .split(' ');
+
+            const cleanStringArray: string[] = [];
+
+            console.log('Dirty string array '+dirtyStringArray);
+
+            dirtyStringArray.forEach(function (dirtyWord){
+                console.log('Dirty Word'+dirtyWord);
+                if (dirtyWord.length>1){
+                    if (!arrayContains(badWords, dirtyWord)){
+                        cleanStringArray.push(dirtyWord.toLowerCase());
+                    }
+                }else {
+                    if (isNumber(+dirtyWord)){
+                        cleanStringArray.push(dirtyWord.toLowerCase());
+                    }
+                }
+            });
+
+            let cleanDoc = '';
+
+            cleanStringArray.forEach(function (cleanWord) {
+                cleanDoc = cleanDoc.concat(' ',cleanWord);
+            });
+
+            cleanDoc = cleanDoc.trimLeft();
+            cleanDoc = cleanDoc.trimRight();
+
+            return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({
+                item_doc:cleanDoc
+            })
+        }
+
+    });
 
 exports.logNewItems = functions.region('asia-northeast1').firestore
 .document('Items/{item}')
@@ -135,55 +201,6 @@ export const onItemDelete = functions
 
         console.log('Updated the total amount of items to '+ decreasedTotalSize);
         return
-
-
-       // return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id'])
-       //     .get()
-       //     .then(function (doc) {
-       //         const result = doc.data();
-       //
-       //         console.log("Result Data: "+result);
-       //
-       //         const itemCount = Number(result['number_of_items_in_category']);
-       //         console.log(deletedItem['item_category_id']+" Count: "+itemCount);
-       //
-       //         return admin.firestore().collection('Number_of_Items').doc(deletedItem['item_category_id']).update({
-       //             number_of_items_in_category: itemCount - 1,
-       //         }).then(function (totalItems) {
-       //             admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
-       //                 if (totalDoc.exists) {
-       //                     const totalResult = totalDoc.data();
-       //                     let totalItemCount = Number(totalResult['number_of_items_in_category']);
-       //
-       //                     console.log("Total Item Count"+totalItemCount);
-       //
-       //                     totalItemCount = totalItemCount-1;
-       //
-       //                     return admin.firestore().collection('Number_of_Items').doc('Total').update({
-       //                         number_of_items_in_category: totalItemCount,
-       //                         number_of_items_item_category: 'Total'
-       //                     }).then(function () {
-       //                         admin.firestore().collection('TF')
-       //                             .doc('tf')
-       //                             .collection(deletedItem['item_category_id'])
-       //                             .doc(deletedItem['item_uid']).delete().then(function () {
-       //                                 admin.firestore().collection('IDF')
-       //                                     .doc('idf')
-       //                                     .collection(deletedItem['item_category_id'])
-       //                                     .doc(deletedItem['item_uid'])
-       //                                     .delete()
-       //                         })
-       //                     })
-       //
-       //                 }else {
-       //                     console.log('No such document!');
-       //                     return null;
-       //                 }
-       //             }).catch(function (error) {
-       //                 console.log("Error getting total doc: "+ error);
-       //             });
-       //         });
-       //     });
     });
 
 export const onItemDocUpdate = functions
@@ -1338,68 +1355,85 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
         }
     });
 
+//create function that returns a list of item from a search query
+export const getRelatedItems = functions.https.onCall(async (data, context)=>{
+    const searchString:string = data.text;
+    //the search query string from the app should be structured like this:
+    //item_category tag1 tag2 tagn
+    const searchQueryArray:string[] = searchString.split(" ");
+    const searchItemCategory:string = searchQueryArray[0].trimRight();
+    const searchTags:string[] = [];
+    const relateItemUids:string[] = [];
+    const relateItemScore:number[] = [];
+    const uniqueWordArray:string[] = [];
+    const wordCountArray:number[] = [];
+    const relatedItemMap = [];
 
+    //clean up the search query
+    for(let i=1; i<searchQueryArray.length; i++){
+        searchTags.push(searchQueryArray[i])
+    }
 
-function arrayContains(badWords: string[], word: string):boolean {
-    return badWords.indexOf(word) > -1;
-}
-
-function isNumber(value: string | number): boolean
-{
-    return !isNaN(Number(value));
-}
-
-export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
-    .onUpdate((change, context) =>{
-        const itemBefore = change.before.data();
-        const itemAfter = change.after.data();
-
-        if (itemAfter['item_doc'] === itemBefore['item_doc']){
-            console.log('This item has no new name, description, or price description');
-            return null;
-        } else {
-            console.log('This item has new data');
-            //clean the document string
-            const dirtyString:string = itemAfter['item_doc'];
-            const badWords:string[] = ["a","an","the","I", "and", "but", "or", "nor", "for",
-                "yet", "it", "they", "him", "her", "them", "of"];
-
-            const dirtyStringArray: string[] = dirtyString
-                .replace(/[^\w\s]|_/g, function ($1) {
-                    return ' ' + $1 + ' ';
-                })
-                .replace(/[ ]+/g, ' ')
-                .split(' ');
-
-            const cleanStringArray: string[] = [];
-
-            console.log('Dirty string array '+dirtyStringArray);
-
-            dirtyStringArray.forEach(function (dirtyWord){
-                console.log('Dirty Word'+dirtyWord);
-                if (dirtyWord.length>1){
-                    if (!arrayContains(badWords, dirtyWord)){
-                        cleanStringArray.push(dirtyWord.toLowerCase());
-                    }
-                }else {
-                    if (isNumber(+dirtyWord)){
-                        cleanStringArray.push(dirtyWord.toLowerCase());
-                    }
-                }
-            });
-
-            let cleanDoc = '';
-
-            cleanStringArray.forEach(function (cleanWord) {
-                cleanDoc = cleanDoc.concat(' ',cleanWord);
-            });
-
-            cleanDoc = cleanDoc.trimLeft();
-            cleanDoc = cleanDoc.trimRight();
-
-            return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({
-                item_doc:cleanDoc
-            })
+    searchTags.forEach(function (searchTag) {
+        if (!arrayContains(uniqueWordArray, searchTag)){
+            uniqueWordArray.push(searchTag);
+            wordCountArray.push(1);
+        }else {
+            const uniqueWordIndex = uniqueWordArray.indexOf(searchTag);
+            wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
         }
-
     });
+
+    console.log("Looking for items that belong to the "+searchItemCategory+" category");
+    //get items with the same item category
+    const querySnapshot = await admin.firestore().collection('Item_Profile')
+        .where("item_profile_item_category", "==", searchItemCategory).get();
+
+    const resultDocs = querySnapshot.docs;
+    console.log('There are '+resultDocs.length+' in the '+searchItemCategory);
+
+    const readPromise = await resultDocs.forEach(async function (doc) {
+        const itemProfile = doc.data();
+        const itemUid = itemProfile['item_profile_item_uid'];
+        const itemProfileAttributeWords:string[] = itemProfile['item_profile_attribute_words'];
+        const itemProfileAttributeWeight:number[] = itemProfile['item_profile_attribute_weights'];
+        let itemScore:number = 0;
+
+        uniqueWordArray.forEach(function (attributeWord) {
+            if (arrayContains(itemProfileAttributeWords, attributeWord)){
+                const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
+                const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
+                const weight = itemProfileAttributeWeight[indexOfAttributeWord];
+                const wordCount = wordCountArray[indexOfUniqueWord];
+                itemScore+=(weight*wordCount);
+            }
+        });
+
+        console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
+        relatedItemMap.push([itemUid, itemScore]);
+        // relateItemScore.push(itemScore);
+        // relateItemUids.push(itemUid);
+    });
+
+    console.log("Started Sorting the Map");
+    //sort the map based on the score for each item in ascending order
+    const sortedArray = relatedItemMap.sort(function (a,b) {
+        return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
+    });
+
+    console.log("Finished Sorting the Map");
+
+
+    sortedArray.forEach(function (item) {
+        relateItemUids.push(item[0]);
+    });
+
+    relateItemUids.forEach(function (item) {
+        console.log("Recommended Item UID: "+item);
+    });
+
+    console.log("Array of related item uids has been sent");
+    return {
+        itemUids: relateItemUids
+    }
+});
