@@ -47,7 +47,9 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
         .collection('Number_of_Items')
         .doc(itemCategory).get();
 
-    const increasedCategorySize:number = itemCategoryPromise.data()['number_of_items_in_category'] + 1;
+    const categoryDoc = itemCategoryPromise.data();
+    const increasedCategorySize:number = categoryDoc['number_of_items_in_category'] + 1;
+    console.log(itemCategory+"'s size has now been increased to "+increasedCategorySize);
 
     const increaseCategoryPromise = await admin.firestore()
         .collection('Number_of_Items')
@@ -62,7 +64,10 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
         .collection('Number_of_Items')
         .doc('Total').get();
 
-    const increasedTotalSize:number = itemCategoryPromise.data()['number_of_items_in_category'] + 1;
+    const totalDoc = itemCategoryPromise.data();
+    const increasedTotalSize:number =  totalDoc['number_of_items_in_category']+ 1;
+    console.log("Total number of items has now been increased to "+increasedTotalSize
+        +' from '+totalDoc['number_of_items_in_category']);
 
     const increaseTotalPromise = await admin.firestore()
         .collection('Number_of_Items')
@@ -73,39 +78,6 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     console.log('Updated the total amount of items to '+ increasedTotalSize);
 
     return;
-    // return admin.firestore().collection('Number_of_Items').doc(item['item_category_id'])
-    //     .get()
-    //     .then(function (doc) {
-    //         const result = doc.data();
-    //         console.log("Result Data: "+result);
-    //         const itemCount = Number(result['number_of_items_in_category']);
-    //         console.log(item['item_category_id']+" Count: "+itemCount);
-    //
-    //         return admin.firestore().collection('Number_of_Items').doc(item['item_category_id']).update({
-    //             number_of_items_in_category: itemCount + 1,
-    //         }).then(function (totalItems) {
-    //             admin.firestore().collection('Number_of_Items').doc('Total').get().then(function(totalDoc) {
-    //                 if (totalDoc.exists) {
-    //                     const totalResult = totalDoc.data();
-    //                     let totalItemCount = Number(totalResult['number_of_items_in_category']);
-    //
-    //                     console.log("Total Item Count"+totalItemCount);
-    //
-    //                     totalItemCount = totalItemCount+1;
-    //
-    //                     return admin.firestore().collection('Number_of_Items').doc('Total').update({
-    //                         number_of_items_in_category: totalItemCount,
-    //                         number_of_items_item_category: 'Total'
-    //                     });
-    //                 }else {
-    //                     console.log('No such document!');
-    //                     return null;
-    //                 }
-    //             }).catch(function (error) {
-    //                 console.log("Error getting total doc: "+ error);
-    //             });
-    //         });
-    //     });
 });
 
 export const onItemDelete = functions
@@ -158,7 +130,7 @@ export const onItemDelete = functions
         const decreaseTotalPromise = await admin.firestore()
             .collection('Number_of_Items')
             .doc('Total').update({
-                number_of_items_in_category: decreasedCategorySize
+                number_of_items_in_category: decreasedTotalSize
             });
 
         console.log('Updated the total amount of items to '+ decreasedTotalSize);
@@ -246,7 +218,7 @@ export const onItemDocUpdate = functions
     });
 
 export const updateTF = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
-    .onUpdate((change, context) =>{
+    .onUpdate(async (change, context) =>{
         const itemBefore = change.before.data();
         const itemAfter = change.after.data();
 
@@ -283,15 +255,51 @@ export const updateTF = functions.region('asia-northeast1').firestore.document('
                 tfArray[i] = (wordCountArray[i])/totalWordCount;
             }
 
-            return admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id']).doc(itemAfter['item_uid']).set({
-                tf_unique_word_count: uniqueWordCount,
-                tf_total_word_count: totalWordCount,
-                tf_unique_words: uniqueWordArray,
-                tf_unique_words_count: wordCountArray,
-                tf_item_uid: itemAfter['item_uid'],
-                tf_tf_score: tfArray
-            })
+            try{
+                await admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id'])
+                    .doc(itemAfter['item_uid'])
+                    .update({
+                        tf_unique_word_count: uniqueWordCount,
+                        tf_total_word_count: totalWordCount,
+                        tf_unique_words: uniqueWordArray,
+                        tf_unique_words_count: wordCountArray,
+                        tf_item_uid: itemAfter['item_uid'],
+                        tf_tf_score: tfArray
+                    });
 
+                console.log("Updated the tf value of the item: "+
+                    itemAfter['item_uid']
+                    +"which belongs to the "+itemAfter['item_category_id']+" Category");
+
+            }catch (e) {
+                await admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id'])
+                    .doc(itemAfter['item_uid'])
+                    .set({
+                        tf_unique_word_count: uniqueWordCount,
+                        tf_total_word_count: totalWordCount,
+                        tf_unique_words: uniqueWordArray,
+                        tf_unique_words_count: wordCountArray,
+                        tf_item_uid: itemAfter['item_uid'],
+                        tf_tf_score: []
+                    });
+
+                await admin.firestore().collection('TF').doc('tf').collection(itemAfter['item_category_id'])
+                    .doc(itemAfter['item_uid'])
+                    .update({
+                        tf_unique_word_count: uniqueWordCount,
+                        tf_total_word_count: totalWordCount,
+                        tf_unique_words: uniqueWordArray,
+                        tf_unique_words_count: wordCountArray,
+                        tf_item_uid: itemAfter['item_uid'],
+                        tf_tf_score: tfArray
+                    });
+
+                console.log("Wrote and Updated the tf value of the item: "+
+                    itemAfter['item_uid']
+                    +"which belongs to the "+itemAfter['item_category_id']+" Category");
+            }
+
+            return
         }
     });
 
@@ -796,6 +804,51 @@ export const updateFlowersIDF = functions.firestore.document("TF/tf/Flowers/{ite
             });
 
             console.log("The Entire Flowers IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateFoodIDF = functions.firestore.document("TF/tf/Food/{itemCategory}")
+    .onUpdate(async (change, context) => {
+        const itemBefore = change.before.data();
+        const itemAfter = change.after.data();
+
+        if (itemAfter['tf_tf_score'] === itemBefore['tf_tf_score']){
+            console.log('This TF score of the words in this item has not changed');
+            return null;
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Food');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Food').get();
+
+            const itemDocs = querySnapshot.docs;
+            console.log("There are "+itemDocs.length+" items in the Food Category");
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords:string[] = doc['tf_unique_words'];
+                const tfItemUid:string = doc['tf_item_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray:number[] = [];
+
+                console.log("We are updating the item: "+tfItemUid);
+                const weightArray:number[] = await getIDFWeightArray(tfWords, 'Food');
+
+                const idfWritePromise = await writeToIDFCollection(tfItemUid, 'Food',tfWords, weightArray);
+
+                //calculate TFIDF
+                for(let i = 0; i<tfWords.length; i++){
+                    tfidfArray.push(tfScoreArray[i]*weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToItemProfileCollection(tfItemUid, 'Food',tfWords, tfidfArray);
+            });
+
+            console.log("The Entire Food IDF has been updated");
             return null;
         }
     });
