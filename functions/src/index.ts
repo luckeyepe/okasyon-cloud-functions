@@ -1355,7 +1355,7 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
         }
     });
 
-//create function that returns a list of item from a search query
+//function that returns a list of item from a search query
 export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     const searchString:string = data.text;
     //the search query string from the app should be structured like this:
@@ -1368,6 +1368,7 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     const uniqueWordArray:string[] = [];
     const wordCountArray:number[] = [];
     const relatedItemMap = [];
+    const user_uid = context.auth.uid;
 
     //clean up the search query
     for(let i=1; i<searchQueryArray.length; i++){
@@ -1383,6 +1384,23 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
             wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
         }
     });
+
+    const userItemProfileQuery = await admin.firestore()
+        .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
+        .get();
+
+    const userItemProfileDoc = userItemProfileQuery.data();
+    const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
+    const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
+
+    userItemProfileAttributes.forEach(function (attribute) {
+        uniqueWordArray.push(attribute)
+    });
+
+    userItemProfileCount.forEach(function (count) {
+        wordCountArray.push(count)
+    });
+
 
     console.log("Looking for items that belong to the "+searchItemCategory+" category");
     //get items with the same item category
@@ -1411,8 +1429,6 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
 
         console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
         relatedItemMap.push([itemUid, itemScore]);
-        // relateItemScore.push(itemScore);
-        // relateItemUids.push(itemUid);
     });
 
     console.log("Started Sorting the Map");
@@ -1422,7 +1438,6 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     });
 
     console.log("Finished Sorting the Map");
-
 
     sortedArray.forEach(function (item) {
         relateItemUids.push(item[0]);
