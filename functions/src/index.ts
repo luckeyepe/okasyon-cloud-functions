@@ -1556,8 +1556,8 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     // const searchString:string = data.item_category;
     const searchItemCategory:string = data.item_category;
     const relateItemUids:string[] = [];
-    const uniqueWordArray:string[] = [];
-    const wordCountArray:number[] = [];
+    let uniqueWordArray:string[] = [];
+    let wordCountArray:number[] = [];
     const relatedItemMap = [];
     const user_uid = data.current_user_uid;
 
@@ -1569,19 +1569,20 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
         console.log('User has an existing User Item Profile');
 
         const userItemProfileDoc = userItemProfileQuery.data();
-        const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
-        const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
+        uniqueWordArray = userItemProfileDoc['user_item_profile_attributes'];
+        wordCountArray = userItemProfileDoc['user_item_profile_count'];
 
-
-        for (let i =0; i<userItemProfileAttributes.length; i++){
-            uniqueWordArray.push(userItemProfileAttributes[i]);
-        }
-
-        console.log('User is here');
-
-        for (let i =0; i<userItemProfileCount.length; i++){
-            wordCountArray.push(userItemProfileCount[i]);
-        }
+        // uniqueWordArray = userItemProfileAttributes;
+        // // for (let i =0; i<userItemProfileAttributes.length; i++){
+        // //     uniqueWordArray.push(userItemProfileAttributes[i]);
+        // // }
+        //
+        // console.log('User is here');
+        //
+        // wordCountArray = userItemProfileCount
+        // // for (let i =0; i<userItemProfileCount.length; i++){
+        // //     wordCountArray.push(userItemProfileCount[i]);
+        // // }
     }
 
     console.log("Looking for items that belong to the "+searchItemCategory+" category");
@@ -1592,27 +1593,41 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     const resultDocs = querySnapshot.docs;
     console.log('There are '+resultDocs.length+' in the '+searchItemCategory);
 
-    const readPromise = await resultDocs.forEach(async function (doc) {
+    const readPromise = await querySnapshot.forEach(function (doc) {
         const itemProfile = doc.data();
         const itemUid = itemProfile['item_profile_item_uid'];
         const itemProfileAttributeWords:string[] = itemProfile['item_profile_attribute_words'];
         const itemProfileAttributeWeight:number[] = itemProfile['item_profile_attribute_weights'];
         let itemScore:number = 0;
 
-        uniqueWordArray.forEach(function (attributeWord) {
+        for(let i=0; i<uniqueWordArray.length; i++){
             console.log(itemProfileAttributeWords);
-            console.log(attributeWord);
-            if (arrayContains(itemProfileAttributeWords, attributeWord)){
-                const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
-                const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
+            console.log(uniqueWordArray[i]);
+            if (arrayContains(itemProfileAttributeWords, uniqueWordArray[i])){
+                const indexOfAttributeWord = itemProfileAttributeWords.indexOf(uniqueWordArray[i]);
+                const indexOfUniqueWord = uniqueWordArray.indexOf(uniqueWordArray[i]);
                 const weight = itemProfileAttributeWeight[indexOfAttributeWord];
                 const wordCount = wordCountArray[indexOfUniqueWord];
 
-                console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
+                console.log("The word "+uniqueWordArray[i]+" is in the query and has a score of "+(weight*wordCount));
 
                 itemScore+=(weight*wordCount);
             }
-        });
+        }
+        // const foreachPromise = await uniqueWordArray.forEach(function (attributeWord) {
+        //     console.log(itemProfileAttributeWords);
+        //     console.log(attributeWord);
+        //     if (arrayContains(itemProfileAttributeWords, attributeWord)){
+        //         const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
+        //         const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
+        //         const weight = itemProfileAttributeWeight[indexOfAttributeWord];
+        //         const wordCount = wordCountArray[indexOfUniqueWord];
+        //
+        //         console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
+        //
+        //         itemScore+=(weight*wordCount);
+        //     }
+        // });
 
         console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
         relatedItemMap.push([itemUid, itemScore]);
