@@ -141,8 +141,6 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
         })
     });
 
-export const onItemImageUpload = functions.region('asia-northeast1').storage
-
 export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
     .onUpdate((change, context) =>{
         const itemBefore = change.before.data();
@@ -319,6 +317,7 @@ export const onItemDocUpdate = functions
         if (itemAfter['item_name'] === itemBefore['item_name']
             && itemAfter['item_description'] === itemBefore['item_description']
             && itemAfter['item_price_description'] === itemBefore['item_price_description']
+            && itemAfter['item_tag'] === itemBefore['item_tag']
             && itemAfter['item_uid'] === itemBefore['item_uid']){
 
             console.log("Item has no new data");
@@ -330,7 +329,10 @@ export const onItemDocUpdate = functions
             const itemName = itemAfter['item_name'];
             const itemDescription: string = itemAfter['item_description'];
             const itemPriceDescription: string = itemAfter['item_price_description'];
-            const itemDoc: string = itemName.concat(" ", itemDescription, " ", itemPriceDescription);
+            const itemTags: string = itemAfter['item_tag'];
+            const itemDoc: string = itemName.concat(" ", itemDescription, " ",
+                itemPriceDescription, " ",
+                itemTags);
 
             return admin.firestore().collection('Items').doc(itemAfter['item_uid']).update({item_doc: itemDoc});
         }
@@ -1461,18 +1463,24 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
 export const searchForItem = functions.https.onCall(async (data, context)=>{
     const searchString:string = data.query;
     const searchItemCategory:string = data.item_category;
-    //the search query string from the app should be structured like this:
-    //item_category tag1 tag2 tagn
-    const searchQueryArray:string[] = searchString.split(" ");
+    const user_uid = data.current_user_uid;
+    let searchQueryArray:string[] = [];
     const searchTags:string[] = [];
     const relateItemUids:string[] = [];
     const uniqueWordArray:string[] = [];
     const wordCountArray:number[] = [];
     const relatedItemMap = [];
-    const user_uid = context.auth.uid;
+
+    console.log("Search string for the item is "+searchString);
+
+    if (searchString.indexOf(' ') > -1){
+        searchQueryArray = searchString.split(" ");
+    } else {
+        searchQueryArray.push(searchString)
+    }
 
     //clean up the search query
-    for(let i=1; i<searchQueryArray.length; i++){
+    for(let i=0; i<searchQueryArray.length; i++){
         searchTags.push(searchQueryArray[i])
     }
 
@@ -1486,23 +1494,6 @@ export const searchForItem = functions.https.onCall(async (data, context)=>{
         }
     });
 
-    const userItemProfileQuery = await admin.firestore()
-        .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
-        .get();
-
-    // if (userItemProfileQuery.exists){
-    //     const userItemProfileDoc = userItemProfileQuery.data();
-    //     const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
-    //     const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
-    //
-    //     userItemProfileAttributes.forEach(function (attribute) {
-    //         uniqueWordArray.push(attribute)
-    //     });
-    //
-    //     userItemProfileCount.forEach(function (count) {
-    //         wordCountArray.push(count)
-    //     });
-    // }
 
     console.log("Looking for items that belong to the "+searchItemCategory+" category");
     //get items with the same item category
@@ -1520,11 +1511,16 @@ export const searchForItem = functions.https.onCall(async (data, context)=>{
         let itemScore:number = 0;
 
         uniqueWordArray.forEach(function (attributeWord) {
+            console.log(itemProfileAttributeWords);
+            console.log(attributeWord);
             if (arrayContains(itemProfileAttributeWords, attributeWord)){
                 const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
                 const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
                 const weight = itemProfileAttributeWeight[indexOfAttributeWord];
                 const wordCount = wordCountArray[indexOfUniqueWord];
+
+                console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
+
                 itemScore+=(weight*wordCount);
             }
         });
@@ -1559,47 +1555,33 @@ export const searchForItem = functions.https.onCall(async (data, context)=>{
 export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     // const searchString:string = data.item_category;
     const searchItemCategory:string = data.item_category;
-    //the search query string from the app should be structured like this:
-    //item_category tag1 tag2 tagn
-    // const searchItemCategory:string = searchQueryArray[0].trimRight();
-    // const searchTags:string[] = [];
     const relateItemUids:string[] = [];
     const uniqueWordArray:string[] = [];
     const wordCountArray:number[] = [];
     const relatedItemMap = [];
-    const user_uid = context.auth.uid;
-
-    //clean up the search query
-    // for(let i=1; i<searchQueryArray.length; i++){
-    //     searchTags.push(searchQueryArray[i])
-    // }
-
-    // searchTags.forEach(function (searchTag) {
-    //     if (!arrayContains(uniqueWordArray, searchTag)){
-    //         uniqueWordArray.push(searchTag);
-    //         wordCountArray.push(1);
-    //     }else {
-    //         const uniqueWordIndex = uniqueWordArray.indexOf(searchTag);
-    //         wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
-    //     }
-    // });
+    const user_uid = data.current_user_uid;
 
     const userItemProfileQuery = await admin.firestore()
         .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
         .get();
 
     if (userItemProfileQuery.exists){
+        console.log('User has an existing User Item Profile');
+
         const userItemProfileDoc = userItemProfileQuery.data();
         const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
         const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
 
-        userItemProfileAttributes.forEach(function (attribute) {
-            uniqueWordArray.push(attribute)
-        });
 
-        userItemProfileCount.forEach(function (count) {
-            wordCountArray.push(count)
-        });
+        for (let i =0; i<userItemProfileAttributes.length; i++){
+            uniqueWordArray.push(userItemProfileAttributes[i]);
+        }
+
+        console.log('User is here');
+
+        for (let i =0; i<userItemProfileCount.length; i++){
+            wordCountArray.push(userItemProfileCount[i]);
+        }
     }
 
     console.log("Looking for items that belong to the "+searchItemCategory+" category");
@@ -1618,11 +1600,16 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
         let itemScore:number = 0;
 
         uniqueWordArray.forEach(function (attributeWord) {
+            console.log(itemProfileAttributeWords);
+            console.log(attributeWord);
             if (arrayContains(itemProfileAttributeWords, attributeWord)){
                 const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
                 const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
                 const weight = itemProfileAttributeWeight[indexOfAttributeWord];
                 const wordCount = wordCountArray[indexOfUniqueWord];
+
+                console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
+
                 itemScore+=(weight*wordCount);
             }
         });
@@ -1655,11 +1642,11 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
 
 export const updateUserItemProfile = functions.region('asia-northeast1')
     .firestore
-    .document('Cart_Items/cart_items/{eventKey}/{cartIetmKey}')
+    .document('Cart_Items/cart_items/{eventKey}/{cartItemKey}')
     .onCreate(async (snapshot, context) => {
         const itemDoc = snapshot.data();
         const itemUid = itemDoc['cart_item_item_uid'];
-        const user_uid = context.auth.uid;
+        const user_uid = itemDoc['cart_item_user_uid'];
 
         try{
             const getItemProfilePromise = await admin.firestore().doc('Item_Profile/'+itemUid).get();
@@ -1673,7 +1660,7 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
             const userItemProfileAttribute:string[] = userItemProfileDoc['user_item_profile_attribute'];
             const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
 
-            itemTags.forEach(await function (tag) {
+            itemTags.forEach(async function (tag) {
                 if (arrayContains(userItemProfileAttribute, tag)){
                     const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
                     userItemProfileCount[attributeIndex] = userItemProfileCount[attributeIndex]+1;
@@ -1701,10 +1688,9 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
             const userItemProfileAttribute:string[] = [];
             const userItemProfileCount:number[] = [];
 
-
             console.log('User item profile is being created');
 
-            itemTags.forEach(await function (tag) {
+            itemTags.forEach(async function (tag) {
                 if (arrayContains(userItemProfileAttribute, tag)){
                     const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
                     userItemProfileCount[attributeIndex] = userItemProfileCount[attributeIndex]+1;
