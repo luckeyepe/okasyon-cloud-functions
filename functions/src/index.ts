@@ -12,6 +12,69 @@ admin.initializeApp();
 //  response.send("Hello from Firebase!");
 // });
 
+//only fires up when a message for a user is written in the latest messages
+exports.notifyNewNotificationMessage = functions.firestore
+    .document('Notification_Massages/{message}')
+    .onWrite((change, context) => {
+        const document = change.after.exists ? change.after.data() : null;
+        const docSnaphshot = document;
+
+        //grab and save the data from the message
+        const message = docSnaphshot;
+        const recieverID = message.message_recieverID
+        const senderName = message.message_senderName
+        console.log("Receiver ID: "+recieverID);
+        console.log("Sender Name: "+senderName);
+
+        // admin.firestore().doc('path/to/doc').get().then(snapshot => {
+        //     const data = snapshot.data()  // a plain JS object
+        // })
+        return admin.firestore().doc('Users/'+recieverID).get().then(userDoc => {
+            //grab device token from the user
+            const recieverUser = userDoc.data();
+            const receiverToken = recieverUser['user_token'];
+
+            console.log("Receiver Name: "+recieverUser['user_firstName']);
+            console.log("Receiver Token: "+receiverToken);
+
+            /*structure of the notification
+            title: title of the notification
+            body: message of the notification
+            click: (optional) launches action from manifest
+            */
+
+            //check if the massage is text or image, and then assigns a value for the notification's body
+            // const notificationBody = (message['message_type'] === "text") ? message['message_messageContent']: "You received a new image message";
+            var notificationBody = "";
+            switch (message['message_type']) {
+                case "text":
+                    notificationBody = message['message_messageContent'];
+                    break;
+
+                case "image":
+                    notificationBody = "You received a new image message";
+                    break;
+
+                case "emergency":
+                    notificationBody = "Please help me";
+                    break;
+            }
+
+            const payload = {
+                notification:{
+                    title: senderName + " sent you a message",
+                    body: notificationBody,
+                    click: "ChatLogActivity"
+                }
+            };
+
+            console.log("Notification Title: "+payload.notification.title);
+            console.log("Notification Message: "+payload.notification.body);
+
+            return admin.messaging().sendToDevice(receiverToken, payload);
+        });
+    });
+
 exports.logNewUser = functions.region('asia-northeast1').firestore
 .document('Users/{user}')
 .onCreate((documentSnapshot, context) =>{
@@ -19,7 +82,11 @@ exports.logNewUser = functions.region('asia-northeast1').firestore
     const userDeviceToken = user['user_token'];
     const userName = ""+user['user_firstName']+" "+user['user_lastName'];
     console.log("User Device Token: "+userDeviceToken);
-    console.log("User Full Name: "+userName); 
+    console.log("User Full Name: "+userName);
+
+    return admin.firestore().doc('User/'+documentSnapshot.id).update({
+        user_profPic: 'default'
+    })
 });
 
 exports.logNewStores = functions.region('asia-northeast1').firestore
@@ -40,6 +107,41 @@ function isNumber(value: string | number): boolean
 {
     return !isNaN(Number(value));
 }
+
+export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
+    .onCreate(async (snapshot, context) => {
+        const eventData = snapshot.data();
+        const eventUid = snapshot.id;
+
+        console.log('Now Creating the Cart Group with the Event ID of '+eventUid);
+
+        const cartGroupPromise =  await admin.firestore().collection('Cart_Group').add({
+            cart_group_event_uid: eventUid,
+            cart_group_uid: ''
+        });
+
+        console.log('Now Updating the Cart Group: '+cartGroupPromise.id+ ' with the Event ID of '+eventUid);
+
+        await admin.firestore().doc('Cart_Group/'+cartGroupPromise.id).update({
+            cart_group_uid: cartGroupPromise.id
+        });
+
+        await admin.firestore().doc('Event/'+eventUid).update({
+            event_cart_group_uid: cartGroupPromise.id
+        })
+    });
+
+export const onEventDelete = functions.region('asia-northeast1').firestore.document('Event/{eventID}')
+    .onDelete(async (snapshot, context) => {
+        const cartGroupPromise = await admin.firestore().collection('Cart_Group')
+            .where('cart_group_event_uid', '==', snapshot.id).get();
+
+        cartGroupPromise.docs.forEach(async function (cart) {
+            await admin.firestore().doc('Cart_Group/'+cart.id).delete();
+        })
+    });
+
+export const onItemImageUpload = functions.region('asia-northeast1').storage
 
 export const cleanTheItemDoc = functions.region('asia-northeast1').firestore.document('Items/{itemID}')
     .onUpdate((change, context) =>{
@@ -1356,15 +1458,14 @@ export const updateWeddingVehicleIDF = functions.firestore.document("TF/tf/Weddi
     });
 
 //function that returns a list of item from a search query
-export const getRelatedItems = functions.https.onCall(async (data, context)=>{
-    const searchString:string = data.text;
+export const searchForItem = functions.https.onCall(async (data, context)=>{
+    const searchString:string = data.query;
+    const searchItemCategory:string = data.item_category;
     //the search query string from the app should be structured like this:
     //item_category tag1 tag2 tagn
     const searchQueryArray:string[] = searchString.split(" ");
-    const searchItemCategory:string = searchQueryArray[0].trimRight();
     const searchTags:string[] = [];
     const relateItemUids:string[] = [];
-    const relateItemScore:number[] = [];
     const uniqueWordArray:string[] = [];
     const wordCountArray:number[] = [];
     const relatedItemMap = [];
@@ -1389,18 +1490,19 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
         .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
         .get();
 
-    const userItemProfileDoc = userItemProfileQuery.data();
-    const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
-    const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
-
-    userItemProfileAttributes.forEach(function (attribute) {
-        uniqueWordArray.push(attribute)
-    });
-
-    userItemProfileCount.forEach(function (count) {
-        wordCountArray.push(count)
-    });
-
+    // if (userItemProfileQuery.exists){
+    //     const userItemProfileDoc = userItemProfileQuery.data();
+    //     const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
+    //     const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
+    //
+    //     userItemProfileAttributes.forEach(function (attribute) {
+    //         uniqueWordArray.push(attribute)
+    //     });
+    //
+    //     userItemProfileCount.forEach(function (count) {
+    //         wordCountArray.push(count)
+    //     });
+    // }
 
     console.log("Looking for items that belong to the "+searchItemCategory+" category");
     //get items with the same item category
@@ -1452,3 +1554,180 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
         itemUids: relateItemUids
     }
 });
+
+//return item uids based on the user's item profile
+export const getRelatedItems = functions.https.onCall(async (data, context)=>{
+    // const searchString:string = data.item_category;
+    const searchItemCategory:string = data.item_category;
+    //the search query string from the app should be structured like this:
+    //item_category tag1 tag2 tagn
+    // const searchItemCategory:string = searchQueryArray[0].trimRight();
+    // const searchTags:string[] = [];
+    const relateItemUids:string[] = [];
+    const uniqueWordArray:string[] = [];
+    const wordCountArray:number[] = [];
+    const relatedItemMap = [];
+    const user_uid = context.auth.uid;
+
+    //clean up the search query
+    // for(let i=1; i<searchQueryArray.length; i++){
+    //     searchTags.push(searchQueryArray[i])
+    // }
+
+    // searchTags.forEach(function (searchTag) {
+    //     if (!arrayContains(uniqueWordArray, searchTag)){
+    //         uniqueWordArray.push(searchTag);
+    //         wordCountArray.push(1);
+    //     }else {
+    //         const uniqueWordIndex = uniqueWordArray.indexOf(searchTag);
+    //         wordCountArray[uniqueWordIndex] = wordCountArray[uniqueWordIndex]+1;
+    //     }
+    // });
+
+    const userItemProfileQuery = await admin.firestore()
+        .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
+        .get();
+
+    if (userItemProfileQuery.exists){
+        const userItemProfileDoc = userItemProfileQuery.data();
+        const userItemProfileAttributes:string[] = userItemProfileDoc['user_item_profile_attributes'];
+        const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
+
+        userItemProfileAttributes.forEach(function (attribute) {
+            uniqueWordArray.push(attribute)
+        });
+
+        userItemProfileCount.forEach(function (count) {
+            wordCountArray.push(count)
+        });
+    }
+
+    console.log("Looking for items that belong to the "+searchItemCategory+" category");
+    //get items with the same item category
+    const querySnapshot = await admin.firestore().collection('Item_Profile')
+        .where("item_profile_item_category", "==", searchItemCategory).get();
+
+    const resultDocs = querySnapshot.docs;
+    console.log('There are '+resultDocs.length+' in the '+searchItemCategory);
+
+    const readPromise = await resultDocs.forEach(async function (doc) {
+        const itemProfile = doc.data();
+        const itemUid = itemProfile['item_profile_item_uid'];
+        const itemProfileAttributeWords:string[] = itemProfile['item_profile_attribute_words'];
+        const itemProfileAttributeWeight:number[] = itemProfile['item_profile_attribute_weights'];
+        let itemScore:number = 0;
+
+        uniqueWordArray.forEach(function (attributeWord) {
+            if (arrayContains(itemProfileAttributeWords, attributeWord)){
+                const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
+                const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
+                const weight = itemProfileAttributeWeight[indexOfAttributeWord];
+                const wordCount = wordCountArray[indexOfUniqueWord];
+                itemScore+=(weight*wordCount);
+            }
+        });
+
+        console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
+        relatedItemMap.push([itemUid, itemScore]);
+    });
+
+    console.log("Started Sorting the Map");
+    //sort the map based on the score for each item in ascending order
+    const sortedArray = relatedItemMap.sort(function (a,b) {
+        return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
+    });
+
+    console.log("Finished Sorting the Map");
+
+    sortedArray.forEach(function (item) {
+        relateItemUids.push(item[0]);
+    });
+
+    relateItemUids.forEach(function (item) {
+        console.log("Recommended Item UID: "+item);
+    });
+
+    console.log("Array of related item uids has been sent");
+    return {
+        itemUids: relateItemUids
+    }
+});
+
+export const updateUserItemProfile = functions.region('asia-northeast1')
+    .firestore
+    .document('Cart_Items/cart_items/{eventKey}/{cartIetmKey}')
+    .onCreate(async (snapshot, context) => {
+        const itemDoc = snapshot.data();
+        const itemUid = itemDoc['cart_item_item_uid'];
+        const user_uid = context.auth.uid;
+
+        try{
+            const getItemProfilePromise = await admin.firestore().doc('Item_Profile/'+itemUid).get();
+            const itemProfileDoc = getItemProfilePromise.data();
+            const itemTags:string[] = itemProfileDoc['item_profile_attribute_words'];
+            const itemCategory:string = itemProfileDoc['item_profile_item_category'];
+
+            const getUserItemProfilePromise = await admin.firestore()
+                .doc('User_Item_Profile/'+user_uid+'/user_item_profile'+'/'+itemCategory).get()
+            const userItemProfileDoc = getUserItemProfilePromise.data();
+            const userItemProfileAttribute:string[] = userItemProfileDoc['user_item_profile_attribute'];
+            const userItemProfileCount:number[] = userItemProfileDoc['user_item_profile_count'];
+
+            itemTags.forEach(await function (tag) {
+                if (arrayContains(userItemProfileAttribute, tag)){
+                    const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
+                    userItemProfileCount[attributeIndex] = userItemProfileCount[attributeIndex]+1;
+                } else {
+                    userItemProfileAttribute.push(tag);
+                    const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
+                    userItemProfileCount[attributeIndex] = 1;
+                }
+            });
+
+            const updatePromise = await admin.firestore().doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+itemCategory)
+                .update({
+                    user_item_profile_attribute: userItemProfileAttribute,
+                    user_item_profile_count: userItemProfileCount
+                });
+
+            console.log('The user: '+user_uid+'item profile for the category of '+itemCategory+' has been updated');
+
+            return updatePromise
+        }catch (e) {
+            const getItemProfilePromise = await admin.firestore().doc('Item_Profile/'+itemUid).get();
+            const itemProfileDoc = getItemProfilePromise.data();
+            const itemTags:string[] = itemProfileDoc['item_profile_attribute_words'];
+            const itemCategory:string = itemProfileDoc['item_profile_item_category'];
+            const userItemProfileAttribute:string[] = [];
+            const userItemProfileCount:number[] = [];
+
+
+            console.log('User item profile is being created');
+
+            itemTags.forEach(await function (tag) {
+                if (arrayContains(userItemProfileAttribute, tag)){
+                    const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
+                    userItemProfileCount[attributeIndex] = userItemProfileCount[attributeIndex]+1;
+                } else {
+                    userItemProfileAttribute.push(tag);
+                    const attributeIndex:number = userItemProfileAttribute.indexOf(tag);
+                    userItemProfileCount[attributeIndex] = 1;
+                }
+            });
+
+            console.log('User item profile is finished');
+
+            const updatePromise = await admin.firestore().doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+itemCategory)
+                .set({
+                    user_item_profile_attribute: userItemProfileAttribute,
+                    user_item_profile_count: userItemProfileCount,
+                    user_item_profile_item_category: itemCategory,
+                    user_item_profile_user_uid: user_uid
+                });
+
+            console.log('The user: '+user_uid+'item profile for the category of '+itemCategory+' has been created');
+
+            return updatePromise
+        }
+
+    });
