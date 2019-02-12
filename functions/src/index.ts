@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import {strictEqual} from "assert";
 import {Console} from "inspector";
+import enableLogging = admin.database.enableLogging;
 
 admin.initializeApp();
 
@@ -1662,21 +1663,11 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
     .onCreate(async (snapshot, context) => {
         const event = snapshot.data();
         const eventName:string = event['event_name'];
-        const eventUid:string = event['event_event_uid'];
         const eventCreatorID:string = event['event_creator_id'];
         const eventCategory:string = event['event_category_id'];
-        const eventTags:string = event['event_tags'];
-        const eventDescription:string = event['event_description'];
 
         console.log("Event Name: " + eventName);
         console.log("Creator ID: " + eventCreatorID);
-
-        //create event doc
-        const eventDoc = eventName.concat(' ',eventTags, ' ', eventDescription);
-
-        const eventDocWritePromise = await admin.firestore().doc('Event/'+eventUid).update({
-            event_doc: eventDoc
-        });
 
         //increase the amount of event in an event category
         const eventCategoryPromise = await admin.firestore()
@@ -1711,23 +1702,6 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
             });
 
         console.log('Updated the total amount of events to '+ increasedTotalSize);
-
-        console.log('Now Creating the Cart Group with the Event ID of '+eventUid);
-
-        const cartGroupPromise =  await admin.firestore().collection('Cart_Group').add({
-            cart_group_event_uid: eventUid,
-            cart_group_uid: ''
-        });
-
-        console.log('Now Updating the Cart Group: '+cartGroupPromise.id+ ' with the Event ID of '+eventUid);
-
-        await admin.firestore().doc('Cart_Group/'+cartGroupPromise.id).update({
-            cart_group_uid: cartGroupPromise.id
-        });
-
-        await admin.firestore().doc('Event/'+eventUid).update({
-            event_cart_group_uid: cartGroupPromise.id
-        });
 
         return;
     });
@@ -1790,11 +1764,10 @@ export const cleanTheEventDoc = functions.region('asia-northeast1').firestore.do
             cleanDoc = cleanDoc.trimLeft();
             cleanDoc = cleanDoc.trimRight();
 
-            return admin.firestore().collection('Items').doc(eventAfter['event_event_uid']).update({
-                item_doc:cleanDoc
+            return admin.firestore().collection('Event').doc(eventAfter['event_event_uid']).update({
+                event_doc:cleanDoc
             })
         }
-
     });
 
 export const onEventDocUpdate = functions
@@ -1809,7 +1782,8 @@ export const onEventDocUpdate = functions
 
         if (eventAfter['event_name'] === eventBefore['event_name']
             && eventAfter['event_description'] === eventBefore['event_description']
-            && eventAfter['event_tags'] === eventBefore['event_tags']){
+            && eventAfter['event_tags'] === eventBefore['event_tags']
+            && eventAfter['event_event_uid'] === eventBefore['event_event_uid']){
 
             console.log("Event has no new data");
 
@@ -1817,12 +1791,53 @@ export const onEventDocUpdate = functions
         }else {
             console.log("Event has updated data");
 
-            const eventName = eventAfter['item_name'];
-            const eventDescription: string = eventAfter['item_description'];
-            const eventTags: string = eventAfter['item_tag'];
-            const eventDoc: string = eventName.concat(" ", eventDescription, " ", eventTags);
+            const eventName:string = eventAfter['event_name'];
+            const eventDescription: string = eventAfter['event_description'];
+            const eventTags: string = eventAfter['event_tags'];
+            const eventDoc: string = eventName.concat(" ", eventDescription," ",eventTags).toLowerCase();
 
             return admin.firestore().collection('Event').doc(eventAfter['event_event_uid']).update({event_doc: eventDoc});
+        }
+    });
+
+export const createCartGroupUpdateCreateEvent = functions
+    .firestore
+    .document('Event/{eventId}').onUpdate(async (change, context) =>{
+        const eventBefore = change.before.data();
+        const eventAfter = change.after.data();
+
+        console.log("After: "+ eventAfter['event_name']+", Before: "+ eventBefore['event_name']);
+        console.log("After: "+ eventAfter['event_description']+", Before: "+ eventBefore['event_description']);
+        console.log("After: "+ eventAfter['event_tags']+", Before: "+ eventBefore['event_tags']);
+
+        if (eventAfter['event_event_uid'] === eventBefore['event_event_uid']){
+
+            console.log("Event has no new data");
+
+            return null;
+        }else {
+            console.log("Event has updated data");
+
+            const eventUid = eventAfter['event_event_uid'];
+
+            console.log('Now Creating the Cart Group with the Event ID of '+eventUid);
+
+            const cartGroupPromise =  await admin.firestore().collection('Cart_Group').add({
+                cart_group_event_uid: eventUid,
+                cart_group_uid: ''
+            });
+
+            console.log('Now Updating the Cart Group: '+cartGroupPromise.id+ ' with the Event ID of '+eventUid);
+
+            await admin.firestore().doc('Cart_Group/'+cartGroupPromise.id).update({
+                cart_group_uid: cartGroupPromise.id
+            });
+
+            await admin.firestore().doc('Event/'+eventUid).update({
+                event_cart_group_uid: cartGroupPromise.id
+            });
+
+
         }
     });
 
@@ -1838,7 +1853,7 @@ export const updateEventTF = functions.region('asia-northeast1').firestore.docum
             return null;
         }else {
             console.log("Event has updated data");
-            const eventDoc:string = eventAfter['item_doc'];
+            const eventDoc:string = eventAfter['event_doc'];
             let uniqueWordCount:number = 0;
             let totalWordCount:number;
             const uniqueWordArray:string[] = [];
@@ -1892,7 +1907,7 @@ export const updateEventTF = functions.region('asia-northeast1').firestore.docum
                         tf_tf_score: []
                     });
 
-                await admin.firestore().collection('TF').doc('tf').collection(eventAfter['event_category_id'])
+                await admin.firestore().collection('TF').doc('event_tf').collection(eventAfter['event_category_id'])
                     .doc(eventAfter['event_event_uid'])
                     .update({
                         tf_unique_word_count: uniqueWordCount,
@@ -1905,7 +1920,7 @@ export const updateEventTF = functions.region('asia-northeast1').firestore.docum
 
                 console.log("Wrote and Updated the tf value of the item: "+
                     eventAfter['item_uid']
-                    +"which belongs to the "+eventAfter['item_category_id']+" Category");
+                    +"which belongs to the "+eventAfter['event_category_id']+" Category");
             }
 
             return
@@ -1980,10 +1995,10 @@ async function writeToEventProfileCollection(tfEventUid: string, eventCategory: 
     const writePromise = await admin.firestore().collection('Event_Profile')
         .doc(tfEventUid)
         .set({
-            item_profile_event_uid: tfEventUid,
-            item_profile_event_category: eventCategory,
-            item_profile_attribute_words: tfWords,
-            item_profile_attribute_weights: tfidfArray
+            event_profile_event_uid: tfEventUid,
+            event_profile_event_category: eventCategory,
+            event_profile_attribute_words: tfWords,
+            event_profile_attribute_weights: tfidfArray
         });
     console.log("The Event_Profile for the event "+tfEventUid+" has been updated");
 
@@ -2208,4 +2223,232 @@ export const updateCustomizedEventsIDF = functions.firestore.document("TF/event_
             console.log("The Entire Customized_Events IDF has been updated");
             return null;
         }
+    });
+
+export const updateUserEventProfileOnCreateEvent = functions.firestore.document("Event/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        const event = snapshot.data();
+        const eventUid:string = event['event_event_uid'];
+        const eventCreatorUid:string = event['event_creator_id'];
+        const eventCategoryId: string = event['event_category_id'];
+
+        const eventProfilePromise: FirebaseFirestore.DocumentSnapshot = await admin.firestore().doc('Event_Profile/'+eventUid).get();
+        const eventProfile: FirebaseFirestore.DocumentData = eventProfilePromise.data();
+        const eventProfileAttributes:string[] = eventProfile['event_profile_attribute_words'];
+
+        try {
+            //if user has existing event profile
+            const userEventProfilePromise = await admin.firestore().doc('User_Event_Profile/'+eventCreatorUid+'/user_event_profile/'+eventCategoryId).get();
+            const userEventProfile: FirebaseFirestore.DocumentData = userEventProfilePromise.data();
+            const userEventProfileAttributes: string[] = userEventProfile['user_item_profile_attribute'];
+            const userEventProfileCount: number[] = userEventProfile['user_item_profile_count'];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                if (arrayContains(userEventProfileAttributes, attribute)){
+                    const index = userEventProfileAttributes.indexOf(attribute);
+                    userEventProfileCount[index]+=1;
+                }else {
+                    userEventProfileAttributes.push(attribute);
+                    userEventProfileCount.push(1);
+                }
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+eventCreatorUid+'/user_event_profile/'+eventCategoryId).update({
+                user_event_profile_attribute: userEventProfileAttributes,
+                user_event_profile_count: userEventProfileCount
+            })
+
+        }catch (e) {
+            //if user doesn't have a user event profile
+            const userEventProfileCount: number[] = [];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                userEventProfileCount.push(1);
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+eventCreatorUid+'/user_event_profile/'+eventCategoryId).set({
+                user_event_profile_attribute: eventProfileAttributes,
+                user_event_profile_count: userEventProfileCount,
+                user_event_profile_event_category: eventCategoryId,
+                user_event_profile_user_uid: eventCreatorUid
+            })
+        }
+    });
+
+export const updateUserEventProfileOnAttendEvent = functions.firestore.document("Attended_Events/{userUid}/{eventCategory}/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        //
+        const attendedEvent:FirebaseFirestore.DocumentData = snapshot.data();
+        const attendedEventEventUid:string = attendedEvent['attended_event_event_uid'];
+        const attendedEventEventCategory: string = attendedEvent['attended_event_event_category_id'];
+        const attendedEventAttendingUserUid: string = attendedEvent['attended_event_user_uid'];
+
+        const eventProfilePromise = await admin.firestore().doc('Event_Profile/'+attendedEventEventUid).get();
+        const eventProfile:FirebaseFirestore.DocumentData = eventProfilePromise.data();
+        const eventProfileAttributes:string[] = eventProfile['event_profile_attribute_words'];
+
+        try {
+            //if user has existing event profile
+            const userEventProfilePromise = await admin.firestore().doc('User_Event_Profile/'+attendedEventAttendingUserUid+
+                '/user_event_profile/'+attendedEventEventCategory).get();
+            const userEventProfile: FirebaseFirestore.DocumentData = userEventProfilePromise.data();
+            const userEventProfileAttributes: string[] = userEventProfile['user_item_profile_attribute'];
+            const userEventProfileCount: number[] = userEventProfile['user_item_profile_count'];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                if (arrayContains(userEventProfileAttributes, attribute)){
+                    const index = userEventProfileAttributes.indexOf(attribute);
+                    userEventProfileCount[index]+=1;
+                }else {
+                    userEventProfileAttributes.push(attribute);
+                    userEventProfileCount.push(1);
+                }
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+attendedEventAttendingUserUid+'/user_event_profile/'+attendedEventEventCategory).update({
+                user_event_profile_attribute: userEventProfileAttributes,
+                user_event_profile_count: userEventProfileCount
+            })
+
+        }catch (e) {
+            //if user doesn't have a user event profile
+            const userEventProfileCount: number[] = [];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                userEventProfileCount.push(1);
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+attendedEventAttendingUserUid+'/user_event_profile/'+attendedEventEventCategory).set({
+                user_event_profile_attribute: eventProfileAttributes,
+                user_event_profile_count: userEventProfileCount,
+                user_event_profile_event_category: attendedEventEventCategory,
+                user_event_profile_user_uid: attendedEventEventUid
+            })
+        }
+    });
+
+export const updateUserEventProfileOnSponsorEvent = functions.firestore.document("Sponsored_Events/{userUid}/{eventCategory}/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        //
+        const sponsoredEvent:FirebaseFirestore.DocumentData = snapshot.data();
+        const sponsoredEventEventUid:string = sponsoredEvent['sponsored_event_event_uid'];
+        const sponsoredEventEventCategory: string = sponsoredEvent['sponsored_event_event_category_id'];
+        const sponsoredEventSponsoringUserUid: string = sponsoredEvent['sponsored_event_user_uid'];
+
+        const eventProfilePromise = await admin.firestore().doc('Event_Profile/'+sponsoredEventEventUid).get();
+        const eventProfile = eventProfilePromise.data();
+
+        console.log("Sponsored Event UID is "+sponsoredEventEventUid);
+
+        const eventProfileAttributes:string[] = eventProfile['event_profile_attribute_words'];
+
+        try {
+            //if user has existing event profile
+            const userEventProfilePromise = await admin.firestore().doc('User_Event_Profile/'+sponsoredEventSponsoringUserUid+
+                '/user_event_profile/'+sponsoredEventEventCategory).get();
+            const userEventProfile: FirebaseFirestore.DocumentData = userEventProfilePromise.data();
+            const userEventProfileAttributes: string[] = userEventProfile['user_item_profile_attribute'];
+            const userEventProfileCount: number[] = userEventProfile['user_item_profile_count'];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                if (arrayContains(userEventProfileAttributes, attribute)){
+                    const index = userEventProfileAttributes.indexOf(attribute);
+                    userEventProfileCount[index]+=1;
+                }else {
+                    userEventProfileAttributes.push(attribute);
+                    userEventProfileCount.push(1);
+                }
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+sponsoredEventSponsoringUserUid+'/user_event_profile/'+sponsoredEventEventCategory).update({
+                user_event_profile_attribute: userEventProfileAttributes,
+                user_event_profile_count: userEventProfileCount
+            })
+
+        }catch (e) {
+            //if user doesn't have a user event profile
+            const userEventProfileCount: number[] = [];
+
+            eventProfileAttributes.forEach(function (attribute) {
+                userEventProfileCount.push(1);
+            });
+
+            return admin.firestore().doc('User_Event_Profile/'+sponsoredEventSponsoringUserUid+'/user_event_profile/'+sponsoredEventEventCategory).set({
+                user_event_profile_attribute: eventProfileAttributes,
+                user_event_profile_count: userEventProfileCount,
+                user_event_profile_event_category: sponsoredEventEventCategory,
+                user_event_profile_user_uid: sponsoredEventEventUid
+            })
+        }
+    });
+
+export const updateAttendeesListOnAttendEvent = functions.firestore.document("Attended_Events/{userUid}/{eventCategory}/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        const attendedEvent:FirebaseFirestore.DocumentData = snapshot.data();
+        const attendedEventEventUid:string = attendedEvent['attended_event_event_uid'];
+        const attendedEventEventCategory: string = attendedEvent['attended_event_event_category_id'];
+        const attendedEventAttendingUserUid: string = attendedEvent['attended_event_user_uid'];
+
+        const attendeesListPromise = await admin.firestore().doc('Attendees_List/'+attendedEventEventUid).get();
+        const attendeesList: FirebaseFirestore.DocumentData = attendeesListPromise.data();
+        const attendeesListUsers:string[] = attendeesList['attendees_list_user_uid_list'];
+
+        attendeesListUsers.push(attendedEventAttendingUserUid);
+        const attendeesListNumberOfUsers = attendeesListUsers.length;
+
+        return admin.firestore().doc('Attendees_List/'+attendedEventEventUid).update({
+            attendees_list_list_size: attendeesListNumberOfUsers,
+            attendees_list_user_uid_list: attendeesListUsers
+        })
+    });
+
+export const updateAttendeesListOnCreateEvent = functions.firestore.document("Event/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        const attendedEvent = snapshot.data();
+        const attendedEventEventUid:string = attendedEvent['attended_event_event_uid'];
+        const attendedEventEventCategory: string = attendedEvent['attended_event_event_category_id'];
+        const attendedEventAttendingUserUid: string = attendedEvent['attended_event_user_uid'];
+
+        return admin.firestore().doc('Attendees_List/'+attendedEventEventUid).set({
+            attendees_list_list_size: 1,
+            attendees_list_user_uid_list: [attendedEventAttendingUserUid],
+            attendees_list_event_uid: attendedEventEventUid,
+            attendees_list_event_category: attendedEventEventCategory
+        })
+    });
+
+export const updateSponsorsListOnSponsorEvent = functions.firestore.document("Sponsored_Events/{userUid}/{eventCategory}/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        const sponsoredEvent:FirebaseFirestore.DocumentData = snapshot.data();
+        const sponsoredEventEventUid:string = sponsoredEvent['sponsored_event_event_uid'];
+        const sponsoredEventEventCategory: string = sponsoredEvent['sponsored_event_event_category_id'];
+        const sponsoredEventAttendingUserUid: string = sponsoredEvent['sponsored_event_user_uid'];
+
+        const sponsorsListPromise = await admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).get();
+        const sponsorsList: FirebaseFirestore.DocumentData = sponsorsListPromise.data();
+        const sponsorsListUsers:string[] = sponsorsList['sponsors_list_user_uid_list'];
+
+        sponsorsListUsers.push(sponsoredEventAttendingUserUid);
+        const sponsorsListNumberOfUsers:number = sponsorsListUsers.length;
+
+        return admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).update({
+            sponsors_list_list_size: sponsorsListNumberOfUsers,
+            sponsors_list_user_uid_list: sponsorsListUsers
+        })
+    });
+
+export const updateSponsorsListOnCreateEvent = functions.firestore.document("Event/{eventID}")
+    .onCreate(async (snapshot, context) => {
+        //
+        const sponsoredEvent:FirebaseFirestore.DocumentData = snapshot.data();
+        const sponsoredEventEventUid:string = sponsoredEvent['attended_event_event_uid'];
+        const sponsoredEventEventCategory: string = sponsoredEvent['attended_event_event_category_id'];
+        const sponsoredEventAttendingUserUid: string = sponsoredEvent['attended_event_user_uid'];
+
+        return admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).set({
+            sponsors_list_list_size: 1,
+            sponsors_list_user_uid_list: [sponsoredEventAttendingUserUid],
+            sponsors_list_event_uid: sponsoredEventEventUid,
+            sponsors_list_event_category: sponsoredEventEventCategory
+        })
     });
