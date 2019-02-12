@@ -397,7 +397,7 @@ async function getNumberOfItemsInCategory(itemCategory: string): Promise<number>
     const data = snapshot.data();
     const numberOfItems:number = data['number_of_items_in_category'];
 
-    console.log("Method: Number of Items in the category: Cake_and_Pastries is "+numberOfItems);
+    console.log("Method: Number of Items in the category: "+itemCategory+"is "+numberOfItems);
 
     return numberOfItems;
 }
@@ -424,7 +424,7 @@ async function getItemsThatContainAWord(word: string, itemCategory: string): Pro
 async function getIDFWeightArray(tfWords: string[], itemCategory: string):Promise<number[]> {
     const promiseArray: number[] = [];
     const numberOfItems = await getNumberOfItemsInCategory(itemCategory);
-    console.log("Number of Items in the category: Cake_and_Pastries is " + numberOfItems);
+    console.log("Number of Items in the category: "+itemCategory+" is " + numberOfItems);
 
     for(const tfword in tfWords){
         const resultItemArray = await getItemsThatContainAWord(tfWords[Number(tfword)], itemCategory);
