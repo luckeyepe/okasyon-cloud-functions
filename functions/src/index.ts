@@ -514,6 +514,51 @@ export const updateCakeAndPastriesIDF = functions.firestore.document("TF/tf/Cake
         }
     });
 
+export const updateCakeAndPastriesIDFOnItemDelete = functions.firestore.document("TF/tf/Cake_and_Pastries/{itemCategory}")
+    .onDelete(async (snapshot, context) => {
+        // const deletedTf = snapshot.data();
+
+        const numberOfItemsInCategoryPromise = await admin.firestore().doc('Number_of_Items/Cake_and_Pastries').get();
+        const numberOfItemsInCategory = numberOfItemsInCategoryPromise.data()['number_of_items_in_category'];
+
+        if (numberOfItemsInCategory === 0){
+            return null
+        } else {
+            console.log('This TF score of the words in this item has changed');
+            console.log('System is gonna update all idf for all items in the Cake and Pastries');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('tf').collection('Cake_and_Pastries').get();
+
+            const itemDocs = querySnapshot.docs;
+
+            await itemDocs.forEach(async function (itemDoc) {
+                const doc = itemDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfItemUid: string = doc['tf_item_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the item: " + tfItemUid);
+                const weightArray: number[] = await getIDFWeightArray(tfWords, 'Cake_and_Pastries');
+
+                const idfWritePromise = await writeToIDFCollection(tfItemUid, 'Cake_and_Pastries', tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToItemProfileCollection(tfItemUid, 'Cake_and_Pastries', tfWords, tfidfArray);
+            });
+
+            console.log("The Entire Cake and Pastries IDF has been updated");
+            return null;
+        }
+    });
+
 export const updateGownsIDF = functions.firestore.document("TF/tf/Gowns/{itemCategory}")
     .onUpdate(async (change, context) => {
         const itemBefore = change.before.data();
