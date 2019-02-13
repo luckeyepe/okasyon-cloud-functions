@@ -2668,6 +2668,46 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
             });
 
         console.log('Updated the total amount of items to '+ decreasedTotalSize);
+
+        ///////
+        //delete sponsor's list
+        const sponsorsListDeletePromise = await admin.firestore().doc("Sponsors_List/"+eventUid).delete();
+
+        //delete from sponsored events
+        const sponsoredEventDeletePromise = await admin.firestore()
+            .collection("Sponsored_Events").where("sponsored_event_event_uid", "==", eventUid).get();
+
+        const sponsoredEventDelete = sponsoredEventDeletePromise.docs;
+
+        sponsoredEventDelete.forEach(async function (event) {
+           const sponsoredEvent = event.data();
+           const sponsoredEventUid = sponsoredEvent['sponsored_event_event_uid'];
+           const sponsorUid = sponsoredEvent['sponsored_event_user_uid'];
+           const sponsoredEventCategory = sponsoredEvent['sponsored_event_event_category_id'];
+
+           await admin.firestore().doc('Sponsored_Event'+sponsorUid+'/'+sponsoredEventCategory+'/'+sponsoredEventUid).delete()
+           // await admin.firestore().doc("Sponsors_List/"+sponsorUid+"/"sponsoredEventCategory+"/"+sponsoredEventUid).delete();
+        });
+
+        //delete from attended events
+        const attendedEventDeletePromise = await admin.firestore()
+            .collection("Attended_Events").where("attended_event_event_uid", "==", eventUid).get();
+
+        const attendedEventDelete = sponsoredEventDeletePromise.docs;
+
+        attendedEventDelete.forEach(async function (event) {
+            const attendedEvent = event.data();
+            const attendedEventUid = attendedEvent['attended_event_event_uid'];
+            const attendedUid = attendedEvent['attended_event_user_uid'];
+            const attendedEventCategory = attendedEvent['attended_event_event_category_id'];
+
+            await admin.firestore().doc('Sponsored_Event'+attendedUid+'/'+attendedEventCategory+'/'+attendedEventUid).delete()
+            // await admin.firestore().doc("Sponsors_List/"+sponsorUid+"/"sponsoredEventCategory+"/"+sponsoredEventUid).delete();
+        });
+
+        //delete attendees's list
+        const attendeesListDeletePromise = await admin.firestore().doc("Attendees_List/"+eventUid).delete();
+
         return
     });
 
