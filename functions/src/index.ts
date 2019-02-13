@@ -1708,12 +1708,61 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
 
 export const onEventDelete = functions.region('asia-northeast1').firestore.document('Event/{eventID}')
     .onDelete(async (snapshot, context) => {
+        const deletedEvent = snapshot.data();
+        const eventName = deletedEvent['event_name'];
+        const eventUid = deletedEvent['event_event_uid'];
+        const eventCategory = deletedEvent['event_category_id'];
+
         const cartGroupPromise = await admin.firestore().collection('Cart_Group')
             .where('cart_group_event_uid', '==', snapshot.id).get();
 
         cartGroupPromise.docs.forEach(async function (cart) {
             await admin.firestore().doc('Cart_Group/'+cart.id).delete();
-        })
+        });
+
+        ////////////////////////////
+        //delete item from TF collection
+        const deleteTFPromise = await admin.firestore().doc('TF/event_tf/'+eventCategory+'/'+eventUid).delete();
+        console.log('Deleted the event: '+eventUid+' from the Event TF collection');
+
+        //delete item from IDF collection
+        const deleteIDFPromise = await admin.firestore().doc('IDF/event_idf/'+eventCategory+'/'+eventUid).delete();
+        console.log('Deleted the event: '+eventUid+' from the IDF collection');
+
+        //delete item from Item_Profile collection
+        const deleteEventProfilePromise = await admin.firestore().doc('Event_Profile/'+eventUid).delete();
+        console.log('Deleted the event: '+eventUid+' from the Event_Profile collection');
+
+        //decrease the amount of items in an item category
+        const itemCategoryPromise = await admin.firestore()
+            .collection('Number_of_Events')
+            .doc(eventCategory).get();
+
+        const decreasedCategorySize:number = itemCategoryPromise.data()['number_of_events_in_category'] - 1;
+
+        const decreaseCategoryPromise = await admin.firestore()
+            .collection('Number_of_Events')
+            .doc(eventCategory).update({
+                number_of_events_in_category: decreasedCategorySize
+            });
+
+        console.log('Updated the amount of events in the '+eventCategory+' Event Category to '+decreasedCategorySize);
+
+        //decrease the total amount of items
+        const totalPromise = await admin.firestore()
+            .collection('Number_of_Events')
+            .doc(eventCategory).get();
+
+        const decreasedTotalSize:number = itemCategoryPromise.data()['number_of_events_in_category'] - 1;
+
+        const decreaseTotalPromise = await admin.firestore()
+            .collection('Number_of_Events')
+            .doc('Total').update({
+                number_of_events_in_category: decreasedTotalSize
+            });
+
+        console.log('Updated the total amount of items to '+ decreasedTotalSize);
+        return
     });
 
 export const cleanTheEventDoc = functions.region('asia-northeast1').firestore.document('Event/{eventID}')
@@ -2388,17 +2437,27 @@ export const updateAttendeesListOnAttendEvent = functions.firestore.document("At
         const attendedEventEventCategory: string = attendedEvent['attended_event_event_category_id'];
         const attendedEventAttendingUserUid: string = attendedEvent['attended_event_user_uid'];
 
-        const attendeesListPromise = await admin.firestore().doc('Attendees_List/'+attendedEventEventUid).get();
-        const attendeesList: FirebaseFirestore.DocumentData = attendeesListPromise.data();
-        const attendeesListUsers:string[] = attendeesList['attendees_list_user_uid_list'];
+        try {
+            //if an attendees list for the event is already created
+            const attendeesListPromise = await admin.firestore().doc('Attendees_List/' + attendedEventEventUid).get();
+            const attendeesList: FirebaseFirestore.DocumentData = attendeesListPromise.data();
+            const attendeesListUsers: string[] = attendeesList['attendees_list_user_uid_list'];
 
-        attendeesListUsers.push(attendedEventAttendingUserUid);
-        const attendeesListNumberOfUsers = attendeesListUsers.length;
+            attendeesListUsers.push(attendedEventAttendingUserUid);
+            const attendeesListNumberOfUsers = attendeesListUsers.length;
 
-        return admin.firestore().doc('Attendees_List/'+attendedEventEventUid).update({
-            attendees_list_list_size: attendeesListNumberOfUsers,
-            attendees_list_user_uid_list: attendeesListUsers
-        })
+            return admin.firestore().doc('Attendees_List/' + attendedEventEventUid).update({
+                attendees_list_list_size: attendeesListNumberOfUsers,
+                attendees_list_user_uid_list: attendeesListUsers
+            })
+        }catch (e) {
+            return admin.firestore().doc('Attendees_List/' + attendedEventEventCategory).set({
+                attendees_list_list_size: 1,
+                attendees_list_user_uid_list: [attendedEventAttendingUserUid],
+                attendees_list_event_uid: attendedEventEventUid,
+                attendees_list_event_category: attendedEventEventCategory
+            })
+        }
     });
 
 export const updateAttendeesListOnCreateEvent = functions.firestore.document("Event/{eventID}")
@@ -2430,17 +2489,26 @@ export const updateSponsorsListOnSponsorEvent = functions.firestore.document("Sp
         const sponsoredEventEventCategory: string = sponsoredEvent['sponsored_event_event_category_id'];
         const sponsoredEventAttendingUserUid: string = sponsoredEvent['sponsored_event_user_uid'];
 
-        const sponsorsListPromise = await admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).get();
-        const sponsorsList: FirebaseFirestore.DocumentData = sponsorsListPromise.data();
-        const sponsorsListUsers:string[] = sponsorsList['sponsors_list_user_uid_list'];
+        try {
+            const sponsorsListPromise = await admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).get();
+            const sponsorsList: FirebaseFirestore.DocumentData = sponsorsListPromise.data();
+            const sponsorsListUsers:string[] = sponsorsList['sponsors_list_user_uid_list'];
 
-        sponsorsListUsers.push(sponsoredEventAttendingUserUid);
-        const sponsorsListNumberOfUsers:number = sponsorsListUsers.length;
+            sponsorsListUsers.push(sponsoredEventAttendingUserUid);
+            const sponsorsListNumberOfUsers:number = sponsorsListUsers.length;
 
-        return admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).update({
-            sponsors_list_list_size: sponsorsListNumberOfUsers,
-            sponsors_list_user_uid_list: sponsorsListUsers
-        })
+            return admin.firestore().doc('Sponsors_List/'+sponsoredEventEventUid).update({
+                sponsors_list_list_size: sponsorsListNumberOfUsers,
+                sponsors_list_user_uid_list: sponsorsListUsers
+            })
+        }catch (e) {
+            return admin.firestore().doc('Attendees_List/' + sponsoredEventEventCategory).set({
+                attendees_list_list_size: 1,
+                attendees_list_user_uid_list: [sponsoredEventAttendingUserUid],
+                attendees_list_event_uid: sponsoredEventEventUid,
+                attendees_list_event_category: sponsoredEventEventCategory
+            })
+        }
     });
 
 export const updateSponsorsListOnCreateEvent = functions.firestore.document("Event/{eventID}")
