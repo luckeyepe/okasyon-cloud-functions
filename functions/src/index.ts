@@ -3004,6 +3004,51 @@ export const updateWeddingIDF = functions.firestore.document("TF/event_tf/Weddin
         }
     });
 
+export const updateWeddingIDFOnDelete = functions.firestore.document("TF/event_tf/Wedding/{eventID}")
+    .onDelete(async (snapshot, context) => {
+        const eventCategory = "Wedding";
+        const eventTfPromise = await admin.firestore().collection("TF/event_tf/"+eventCategory).get();
+        const numberOfEventsInCategory:number = eventTfPromise.size;
+
+        if (numberOfEventsInCategory === 0) {
+            console.log('This TF score of the words in this event has not changed');
+            return null;
+        }else {
+            console.log('This TF score of the words in this event has changed');
+            console.log('System is gonna update all idf for all events in the '+eventCategory+' Category');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('event_tf').collection(eventCategory).get();
+
+            const eventDocs = querySnapshot.docs;
+
+            await eventDocs.forEach(async function (eventDoc) {
+                const doc = eventDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfEventUid: string = doc['tf_event_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the event: " + tfEventUid);
+                const weightArray: number[] = await getEventIDFWeightArray(tfWords, eventCategory);
+
+                const idfWritePromise = await writeToEventIDFCollection(tfEventUid, eventCategory, tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToEventProfileCollection(tfEventUid, eventCategory, tfWords, tfidfArray);
+            });
+
+            console.log("The Entire "+eventCategory+" IDF has been updated");
+            return null;
+        }
+    });
+
 export const updatePartyIDF = functions.firestore.document("TF/event_tf/Party/{eventID}")
     .onUpdate(async (change, context) => {
         const eventBefore = change.before.data();
@@ -3044,6 +3089,51 @@ export const updatePartyIDF = functions.firestore.document("TF/event_tf/Party/{e
             });
 
             console.log("The Entire Party IDF has been updated");
+            return null;
+        }
+    });
+
+export const updatePartyIDFOnDelete = functions.firestore.document("TF/event_tf/Party/{eventID}")
+    .onDelete(async (snapshot, context) => {
+        const eventCategory = "Party";
+        const eventTfPromise = await admin.firestore().collection("TF/event_tf/"+eventCategory).get();
+        const numberOfEventsInCategory:number = eventTfPromise.size;
+
+        if (numberOfEventsInCategory === 0) {
+            console.log('This TF score of the words in this event has not changed');
+            return null;
+        }else {
+            console.log('This TF score of the words in this event has changed');
+            console.log('System is gonna update all idf for all events in the '+eventCategory+' Category');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('event_tf').collection(eventCategory).get();
+
+            const eventDocs = querySnapshot.docs;
+
+            await eventDocs.forEach(async function (eventDoc) {
+                const doc = eventDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfEventUid: string = doc['tf_event_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the event: " + tfEventUid);
+                const weightArray: number[] = await getEventIDFWeightArray(tfWords, eventCategory);
+
+                const idfWritePromise = await writeToEventIDFCollection(tfEventUid, eventCategory, tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToEventProfileCollection(tfEventUid, eventCategory, tfWords, tfidfArray);
+            });
+
+            console.log("The Entire "+eventCategory+" IDF has been updated");
             return null;
         }
     });
@@ -3092,6 +3182,51 @@ export const updateBusinessEventsIDF = functions.firestore.document("TF/event_tf
         }
     });
 
+export const updateBusinessEventsIDFOnDelete = functions.firestore.document("TF/event_tf/Business_Events/{eventID}")
+    .onDelete(async (snapshot, context) => {
+        const eventCategory = "Business_Events";
+        const eventTfPromise = await admin.firestore().collection("TF/event_tf/"+eventCategory).get();
+        const numberOfEventsInCategory:number = eventTfPromise.size;
+
+        if (numberOfEventsInCategory === 0) {
+            console.log('This TF score of the words in this event has not changed');
+            return null;
+        }else {
+            console.log('This TF score of the words in this event has changed');
+            console.log('System is gonna update all idf for all events in the '+eventCategory+' Category');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('event_tf').collection(eventCategory).get();
+
+            const eventDocs = querySnapshot.docs;
+
+            await eventDocs.forEach(async function (eventDoc) {
+                const doc = eventDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfEventUid: string = doc['tf_event_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the event: " + tfEventUid);
+                const weightArray: number[] = await getEventIDFWeightArray(tfWords, eventCategory);
+
+                const idfWritePromise = await writeToEventIDFCollection(tfEventUid, eventCategory, tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToEventProfileCollection(tfEventUid, eventCategory, tfWords, tfidfArray);
+            });
+
+            console.log("The Entire "+eventCategory+" IDF has been updated");
+            return null;
+        }
+    });
+
 export const updateSportsEventsIDF = functions.firestore.document("TF/event_tf/Sports_Events/{eventID}")
     .onUpdate(async (change, context) => {
         const eventBefore = change.before.data();
@@ -3136,6 +3271,51 @@ export const updateSportsEventsIDF = functions.firestore.document("TF/event_tf/S
         }
     });
 
+export const updateSportsEventsIDFOnDelete = functions.firestore.document("TF/event_tf/Sports_Events/{eventID}")
+    .onDelete(async (snapshot, context) => {
+        const eventCategory = "Sports_Events";
+        const eventTfPromise = await admin.firestore().collection("TF/event_tf/"+eventCategory).get();
+        const numberOfEventsInCategory:number = eventTfPromise.size;
+
+        if (numberOfEventsInCategory === 0) {
+            console.log('This TF score of the words in this event has not changed');
+            return null;
+        }else {
+            console.log('This TF score of the words in this event has changed');
+            console.log('System is gonna update all idf for all events in the '+eventCategory+' Category');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('event_tf').collection(eventCategory).get();
+
+            const eventDocs = querySnapshot.docs;
+
+            await eventDocs.forEach(async function (eventDoc) {
+                const doc = eventDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfEventUid: string = doc['tf_event_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the event: " + tfEventUid);
+                const weightArray: number[] = await getEventIDFWeightArray(tfWords, eventCategory);
+
+                const idfWritePromise = await writeToEventIDFCollection(tfEventUid, eventCategory, tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToEventProfileCollection(tfEventUid, eventCategory, tfWords, tfidfArray);
+            });
+
+            console.log("The Entire "+eventCategory+" IDF has been updated");
+            return null;
+        }
+    });
+
 export const updateCustomizedEventsIDF = functions.firestore.document("TF/event_tf/Customized_Events/{eventID}")
     .onUpdate(async (change, context) => {
         const eventBefore = change.before.data();
@@ -3176,6 +3356,51 @@ export const updateCustomizedEventsIDF = functions.firestore.document("TF/event_
             });
 
             console.log("The Entire Customized_Events IDF has been updated");
+            return null;
+        }
+    });
+
+export const updateCustomizedEventsIDFOnDelete = functions.firestore.document("TF/event_tf/Customized_Events/{eventID}")
+    .onDelete(async (snapshot, context) => {
+        const eventCategory = "Customized_Events";
+        const eventTfPromise = await admin.firestore().collection("TF/event_tf/"+eventCategory).get();
+        const numberOfEventsInCategory:number = eventTfPromise.size;
+
+        if (numberOfEventsInCategory === 0) {
+            console.log('This TF score of the words in this event has not changed');
+            return null;
+        }else {
+            console.log('This TF score of the words in this event has changed');
+            console.log('System is gonna update all idf for all events in the '+eventCategory+' Category');
+
+            const querySnapshot = await admin.firestore()
+                .collection('TF')
+                .doc('event_tf').collection(eventCategory).get();
+
+            const eventDocs = querySnapshot.docs;
+
+            await eventDocs.forEach(async function (eventDoc) {
+                const doc = eventDoc.data();
+                const tfWords: string[] = doc['tf_unique_words'];
+                const tfEventUid: string = doc['tf_event_uid'];
+                const tfScoreArray = doc['tf_tf_score'];
+                const tfidfArray: number[] = [];
+
+                console.log("We are updating the event: " + tfEventUid);
+                const weightArray: number[] = await getEventIDFWeightArray(tfWords, eventCategory);
+
+                const idfWritePromise = await writeToEventIDFCollection(tfEventUid, eventCategory, tfWords, weightArray);
+
+                //calculate TFIDF
+                for (let i = 0; i < tfWords.length; i++) {
+                    tfidfArray.push(tfScoreArray[i] * weightArray[i]);
+                }
+
+                //Write profile of item
+                return writeToEventProfileCollection(tfEventUid, eventCategory, tfWords, tfidfArray);
+            });
+
+            console.log("The Entire "+eventCategory+" IDF has been updated");
             return null;
         }
     });
