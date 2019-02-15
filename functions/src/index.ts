@@ -2397,93 +2397,166 @@ export const searchForItem = functions.https.onCall(async (data, context)=>{
 //return item uids based on the user's item profile
 export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     // const searchString:string = data.item_category;
-    const searchItemCategory:string = data.item_category;
-    const relateItemUids:string[] = [];
-    let uniqueWordArray:string[] = [];
-    let wordCountArray:number[] = [];
-    const relatedItemMap = [];
+    const itemCategory:string = data.item_category;
     const user_uid = data.current_user_uid;
 
-    const userItemProfileQuery = await admin.firestore()
-        .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
-        .get();
+    try {
+        const userItemProfileReadPromise = await admin.firestore().doc("User_Item_Profile/"+user_uid+"/user_item_profile/"+itemCategory).get();
+        const userItemProfile = userItemProfileReadPromise.data();
+        const userItemProfileAttributes:string[] = userItemProfile['user_item_profile_attribute'];
+        const userItemProfileCount:number[] = userItemProfile['user_item_profile_count'];
+        const itemProfileCollectionRead = await admin.firestore().collection("Item_Profile").where("item_profile_item_category", "==", itemCategory).get();
+        const relatedItemUids: string[] = [];
+        const retaledItemsMap: any[] = [];
+        const itemProfileCollection = itemProfileCollectionRead.docs;
 
-    if (userItemProfileQuery.exists){
-        console.log('User has an existing User Item Profile');
+        itemProfileCollection.forEach(await function (itemProfile) {
+            const itemProfileItemUid:string = itemProfile.data()['item_profile_item_uid'];
+            const itemProfileAttributes: string[] = itemProfile.data()['item_profile_attribute_words'];
+            const itemProfileWeights: number[] = itemProfile.data()['item_profile_attribute_weights'];
+            let itemScore:number = 0;
 
-        const userItemProfileDoc = userItemProfileQuery.data();
-        uniqueWordArray = userItemProfileDoc['user_item_profile_attributes'];
-        wordCountArray = userItemProfileDoc['user_item_profile_count'];
+            userItemProfileAttributes.forEach(function (userAttribute) {
+                if (arrayContains(itemProfileAttributes, userAttribute)) {
+                    const itemWeightIndex = itemProfileAttributes.indexOf(userAttribute);
+                    const userItemAttributeIndex = userItemProfileAttributes.indexOf(userAttribute);
+                    itemScore += userItemProfileCount[userItemAttributeIndex] * itemProfileWeights[itemWeightIndex];
+                }
+            });
 
-        // uniqueWordArray = userItemProfileAttributes;
-        // // for (let i =0; i<userItemProfileAttributes.length; i++){
-        // //     uniqueWordArray.push(userItemProfileAttributes[i]);
-        // // }
-        //
-        // console.log('User is here');
-        //
-        // wordCountArray = userItemProfileCount
-        // // for (let i =0; i<userItemProfileCount.length; i++){
-        // //     wordCountArray.push(userItemProfileCount[i]);
-        // // }
-    }
-
-    console.log("Looking for items that belong to the "+searchItemCategory+" category");
-    //get items with the same item category
-    const querySnapshot = await admin.firestore().collection('Item_Profile')
-        .where("item_profile_item_category", "==", searchItemCategory).get();
-
-    const resultDocs = querySnapshot.docs;
-    console.log('There are '+resultDocs.length+' in the '+searchItemCategory);
-//get items with the same item category
-
-    const readPromise = await resultDocs.forEach(async function (doc) {
-        const itemProfile = doc.data();
-        const itemUid = itemProfile['item_profile_item_uid'];
-        const itemProfileAttributeWords:string[] = itemProfile['item_profile_attribute_words'];
-        const itemProfileAttributeWeight:number[] = itemProfile['item_profile_attribute_weights'];
-        let itemScore:number = 0;
-
-        uniqueWordArray.forEach(function (attributeWord) {
-            console.log(itemProfileAttributeWords);
-            console.log(attributeWord);
-            if (arrayContains(itemProfileAttributeWords, attributeWord)){
-                const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
-                const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
-                const weight = itemProfileAttributeWeight[indexOfAttributeWord];
-                const wordCount = wordCountArray[indexOfUniqueWord];
-
-                console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
-
-                itemScore+=(weight*wordCount);
-            }
+            retaledItemsMap.push([itemProfileItemUid, itemScore]);
         });
 
-        console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
-        relatedItemMap.push([itemUid, itemScore]);
-    });
+        console.log("Started Sorting the Map");
+        //sort the map based on the score for each item in ascending order
+        const sortedArray = retaledItemsMap.sort(function (a,b) {
+            return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
+        });
 
-    console.log("Started Sorting the Map");
-    //sort the map based on the score for each item in ascending order
-    const sortedArray = relatedItemMap.sort(function (a,b) {
-        return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
-    });
+        console.log("Finished Sorting the Map");
 
-    console.log("Finished Sorting the Map");
+        sortedArray.forEach(function (item) {
+            relatedItemUids.push(item[0]);
+        });
 
-    sortedArray.forEach(function (item) {
-        relateItemUids.push(item[0]);
-    });
+        relatedItemUids.forEach(function (item) {
+            console.log("Recommended Item UID: "+item);
+        });
 
-    relateItemUids.forEach(function (item) {
-        console.log("Recommended Item UID: "+item);
-    });
+        console.log("Array of related item uids has been sent");
+        return {
+            itemUids: relatedItemUids
+        }
+    }catch (e) {
+        //user has no item profile
+        //return generic response
+        const itemCollectionRead = await admin.firestore().collection("Items").where("item_category_id", "==", itemCategory).get();
+        const genericItemUids: string[] = [];
+        const itemCollection = itemCollectionRead.docs;
 
-    console.log("Array of related item uids has been sent");
-    return {
-        itemUids: relateItemUids
+        console.log("User "+user_uid+" has no item proflie");
+
+        itemCollection.forEach(async function (itemDoc) {
+            const itemUid:string = itemDoc.data()["item_uid"];
+            genericItemUids.push(itemUid)
+        });
+
+        console.log("Array of related item uids has been sent");
+        return {
+            itemUids: genericItemUids
+        }
     }
 });
+
+// export const getRelatedItems = functions.https.onCall(async (data, context)=>{
+//     // const searchString:string = data.item_category;
+//     const searchItemCategory:string = data.item_category;
+//     const relateItemUids:string[] = [];
+//     let uniqueWordArray:string[] = [];
+//     let wordCountArray:number[] = [];
+//     const relatedItemMap = [];
+//     const user_uid = data.current_user_uid;
+//
+//     const userItemProfileQuery = await admin.firestore()
+//         .doc('User_Item_Profile/'+user_uid+'/user_item_profile/'+searchItemCategory)
+//         .get();
+//
+//     if (userItemProfileQuery.exists){
+//         console.log('User has an existing User Item Profile');
+//
+//         const userItemProfileDoc = userItemProfileQuery.data();
+//         uniqueWordArray = userItemProfileDoc['user_item_profile_attributes'];
+//         wordCountArray = userItemProfileDoc['user_item_profile_count'];
+//
+//         // uniqueWordArray = userItemProfileAttributes;
+//         // // for (let i =0; i<userItemProfileAttributes.length; i++){
+//         // //     uniqueWordArray.push(userItemProfileAttributes[i]);
+//         // // }
+//         //
+//         // console.log('User is here');
+//         //
+//         // wordCountArray = userItemProfileCount
+//         // // for (let i =0; i<userItemProfileCount.length; i++){
+//         // //     wordCountArray.push(userItemProfileCount[i]);
+//         // // }
+//     }
+//
+//     console.log("Looking for items that belong to the "+searchItemCategory+" category");
+//     //get items with the same item category
+//     const querySnapshot = await admin.firestore().collection('Item_Profile')
+//         .where("item_profile_item_category", "==", searchItemCategory).get();
+//
+//     const resultDocs = querySnapshot.docs;
+//     console.log('There are '+resultDocs.length+' in the '+searchItemCategory);
+// //get items with the same item category
+//
+//     const readPromise = await resultDocs.forEach(async function (doc) {
+//         const itemProfile = doc.data();
+//         const itemUid = itemProfile['item_profile_item_uid'];
+//         const itemProfileAttributeWords:string[] = itemProfile['item_profile_attribute_words'];
+//         const itemProfileAttributeWeight:number[] = itemProfile['item_profile_attribute_weights'];
+//         let itemScore:number = 0;
+//
+//         uniqueWordArray.forEach(function (attributeWord) {
+//             console.log(itemProfileAttributeWords);
+//             console.log(attributeWord);
+//             if (arrayContains(itemProfileAttributeWords, attributeWord)){
+//                 const indexOfAttributeWord = itemProfileAttributeWords.indexOf(attributeWord);
+//                 const indexOfUniqueWord = uniqueWordArray.indexOf(attributeWord);
+//                 const weight = itemProfileAttributeWeight[indexOfAttributeWord];
+//                 const wordCount = wordCountArray[indexOfUniqueWord];
+//
+//                 console.log("The word "+attributeWord+" is in the query and has a score of "+(weight*wordCount));
+//
+//                 itemScore+=(weight*wordCount);
+//             }
+//         });
+//
+//         console.log("Stored the item "+itemUid+" with a score of "+itemScore+" to the Map");
+//         relatedItemMap.push([itemUid, itemScore]);
+//     });
+//
+//     console.log("Started Sorting the Map");
+//     //sort the map based on the score for each item in ascending order
+//     const sortedArray = relatedItemMap.sort(function (a,b) {
+//         return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
+//     });
+//
+//     console.log("Finished Sorting the Map");
+//
+//     sortedArray.forEach(function (item) {
+//         relateItemUids.push(item[0]);
+//     });
+//
+//     relateItemUids.forEach(function (item) {
+//         console.log("Recommended Item UID: "+item);
+//     });
+//
+//     console.log("Array of related item uids has been sent");
+//     return {
+//         itemUids: relateItemUids
+//     }
+// });
 
 export const updateUserItemProfile = functions.region('asia-northeast1')
     .firestore
