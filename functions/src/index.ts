@@ -2608,7 +2608,7 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
             });
 
         console.log('Updated the total amount of events to '+ increasedTotalSize);
-
+//
         return;
     });
 
