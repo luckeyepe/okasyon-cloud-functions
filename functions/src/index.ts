@@ -2776,13 +2776,6 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
             .doc("Default_Event_Item_Category/"+eventCategory).get();
         const defaultItemCategories:string[] = defaultItemCategoriesPromise.data()['deic_item_category_id'];
 
-        const customItemCategoryWirte = await admin.firestore()
-            .doc("Custom_Event_Item_Category/"+snapshot.id)
-            .set({
-                ceic_event_uid: snapshot.id,
-                ceic_event_category_id: eventCategory
-            });
-
         defaultItemCategories.forEach(async function (itemCategory) {
            await admin.firestore().doc("Custom_Event_Item_Category/"+snapshot.id
                +"/ceic_item_category"+itemCategory).set({
