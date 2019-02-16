@@ -2777,12 +2777,21 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
         const defaultItemCategories:string[] = defaultItemCategoriesPromise.data()['deic_item_category_id'];
 
         const customItemCategoryWirte = await admin.firestore()
-            .doc("Custom_Event_Item_Category"+snapshot.id)
+            .doc("Custom_Event_Item_Category/"+snapshot.id)
             .set({
-                ceic_item_category_id: defaultItemCategories,
                 ceic_event_uid: snapshot.id,
                 ceic_event_category_id: eventCategory
             });
+
+        defaultItemCategories.forEach(async function (itemCategory) {
+           await admin.firestore().doc("Custom_Event_Item_Category/"+snapshot.id
+               +"/ceic_item_category"+itemCategory).set({
+               ceic_item_set_budget: 0,
+               ceic_item_actual_budget: 0,
+               ceic_item_item_category: itemCategory,
+               ceic_item_event_uid: snapshot.id
+           })
+        });
 //
         return;
     });
