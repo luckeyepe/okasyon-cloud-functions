@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import {strictEqual} from "assert";
 import {Console} from "inspector";
 import enableLogging = admin.database.enableLogging;
+import {event} from "firebase-functions/lib/providers/analytics";
 
 admin.initializeApp();
 
@@ -2649,7 +2650,7 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
 
 export const updateUserItemProfile = functions.region('asia-northeast1')
     .firestore
-    .document('Cart_Items/cart_items/{eventKey}/{cartItemKey}')
+    .document('Cart_Items/{cartGroupUid}/cart_items/{cartItemKey}')
     .onCreate(async (snapshot, context) => {
         const itemDoc = snapshot.data();
         const itemUid = itemDoc['cart_item_item_uid'];
@@ -2685,6 +2686,9 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
                 });
 
             console.log('The user: '+user_uid+'item profile for the category of '+itemCategory+' has been updated');
+
+            //update the item list in the cart group
+            await admin.firestore().doc("")
 
             return updatePromise
         }catch (e) {
@@ -2729,10 +2733,10 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
 
 export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
     .onCreate(async (snapshot, context) => {
-        const event = snapshot.data();
-        const eventName:string = event['event_name'];
-        const eventCreatorID:string = event['event_creator_id'];
-        const eventCategory:string = event['event_category_id'];
+        const events = snapshot.data();
+        const eventName:string = events['event_name'];
+        const eventCreatorID:string = events['event_creator_id'];
+        const eventCategory:string = events['event_category_id'];
 
         console.log("Event Name: " + eventName);
         console.log("Creator ID: " + eventCreatorID);
@@ -2778,7 +2782,7 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
 
         defaultItemCategories.forEach(async function (itemCategory) {
            await admin.firestore().doc("Custom_Event_Item_Category/"+snapshot.id
-               +"/ceic_item_category"+itemCategory).set({
+               +"/ceic_item_category/"+itemCategory).set({
                ceic_item_set_budget: 0,
                ceic_item_actual_budget: 0,
                ceic_item_item_category: itemCategory,
@@ -2856,8 +2860,8 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
 
         const sponsoredEventDelete = sponsoredEventDeletePromise.docs;
 
-        sponsoredEventDelete.forEach(async function (event) {
-           const sponsoredEvent = event.data();
+        sponsoredEventDelete.forEach(async function (events) {
+           const sponsoredEvent = events.data();
            const sponsoredEventUid = sponsoredEvent['sponsored_event_event_uid'];
            const sponsorUid = sponsoredEvent['sponsored_event_user_uid'];
            const sponsoredEventCategory = sponsoredEvent['sponsored_event_event_category_id'];
@@ -2872,8 +2876,8 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
 
         const attendedEventDelete = sponsoredEventDeletePromise.docs;
 
-        attendedEventDelete.forEach(async function (event) {
-            const attendedEvent = event.data();
+        attendedEventDelete.forEach(async function (events) {
+            const attendedEvent = events.data();
             const attendedEventUid = attendedEvent['attended_event_event_uid'];
             const attendedUid = attendedEvent['attended_event_user_uid'];
             const attendedEventCategory = attendedEvent['attended_event_event_category_id'];
@@ -2884,6 +2888,10 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
 
         //delete attendees's list
         const attendeesListDeletePromise = await admin.firestore().doc("Attendees_List/"+eventUid).delete();
+
+
+        //delete custom item list
+        await  admin.firestore().doc("Custom_Event_Item_Category/"+eventUid).delete();
 
         return
     });
@@ -3630,8 +3638,8 @@ export const updateUserEventProfileOnCreateEvent = functions.firestore.document(
         const eventProfileAttributes: string[] = eventProfile['event_profile_attribute_words'];
 
         const eventReadPromise = await admin.firestore().doc("Event/"+eventProfileEventUid).get();
-        const event = eventReadPromise.data();
-        const eventCreatorUid: string = event['event_creator_id'];
+        const events = eventReadPromise.data();
+        const eventCreatorUid: string = events['event_creator_id'];
 
         try {
             //if user has existing event profile
@@ -3816,10 +3824,10 @@ export const updateAttendeesListOnCreateEvent = functions.firestore.document("Ev
         if (eventBefore['event_event_uid']===eventAfter['event_event_uid']){
             return null
         } else {
-            const event = eventAfter;
-            const eventUid: string = event['event_event_uid'];
-            const eventCategory: string = event['event_category_id'];
-            const eventCreatorUid: string = event['event_creator_id'];
+            const events = eventAfter;
+            const eventUid: string = events['event_event_uid'];
+            const eventCategory: string = events['event_category_id'];
+            const eventCreatorUid: string = events['event_creator_id'];
 
             return admin.firestore().doc('Attendees_List/' + eventUid).set({
                 attendees_list_list_size: 1,
@@ -3867,10 +3875,10 @@ export const updateSponsorsListOnCreateEvent = functions.firestore.document("Eve
         if (eventBefore['event_event_uid']===eventAfter['event_event_uid']){
             return null
         } else {
-            const event: FirebaseFirestore.DocumentData = eventAfter;
-            const eventUid: string = event['event_event_uid'];
-            const eventCategory: string = event['event_category_id'];
-            const eventCreatorUid: string = event['event_creator_id'];
+            const events: FirebaseFirestore.DocumentData = eventAfter;
+            const eventUid: string = events['event_event_uid'];
+            const eventCategory: string = events['event_category_id'];
+            const eventCreatorUid: string = events['event_creator_id'];
 
             return admin.firestore().doc('Sponsors_List/' + eventUid).set({
                 sponsors_list_list_size: 1,
@@ -3880,3 +3888,69 @@ export const updateSponsorsListOnCreateEvent = functions.firestore.document("Eve
             })
         }
     });
+
+export const updateEventBudgetSpent = functions.firestore
+    .document("Custom_Event_Item_Category/{eventKey}/ceic_item_category/{itemCategoryKey}")
+    .onUpdate(async (change, context) => {
+        const after = change.after.data();
+        const before = change.before.data();
+        
+        if (after["ceic_item_actual_budget"] === before["ceic_item_actual_budget"]){
+            console.log("Money spent on the item category did not change");
+            return null;
+        }else {
+            const budgetSpent:number = after["ceic_item_actual_budget"];
+            const eventUid:string = after["ceic_item_event_uid"];
+            const itemCategory:string = after["ceic_item_item_category"];
+
+            const eventReadPromise = await admin.firestore().doc("Event/"+eventUid).get();
+            const eventRead = eventReadPromise.data();
+            const totalBudgetSpent: number = eventRead["event_budget_spent"];
+            const newTotalBudgetSpent:number = totalBudgetSpent + budgetSpent;
+
+            return admin.firestore().doc("Event/"+eventUid).update({
+                event_budget_spent: newTotalBudgetSpent
+            })
+        }
+    });
+
+export const getUnusedItemCategories = functions.https.onCall(async (data, context)=>{
+    // const searchString:string = data.item_category;
+    const eventUid:string = data.event_uid;
+    const usedItemCategories: string[] = [];
+    const unusedItemCategories: string[] = [];
+    const result: string[] = [];
+
+    console.log("Event selected is "+ eventUid);
+
+    const usedItemCategoryReadPromise = await admin.firestore()
+        .collection("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category").get();
+
+    const usedItemCategoryRead = usedItemCategoryReadPromise.docs;
+
+    usedItemCategoryRead.forEach(function (itemCategory) {
+        usedItemCategories.push(itemCategory.data()["ceic_item_item_category"])
+        console.log("The item category "+ itemCategory.data()["ceic_item_item_category"]
+            + " is in the event "+eventUid)
+    });
+
+    const unusedItemCategoryReadPromise = await admin.firestore()
+        .collection("Item_Category").get();
+
+    const unusedItemCategoryRead = unusedItemCategoryReadPromise.docs;
+
+    unusedItemCategoryRead.forEach(function (itemCategory) {
+        unusedItemCategories.push(itemCategory.data()["itemCategory_uid"])
+    });
+
+    unusedItemCategories.forEach(function (itemCategory) {
+       if (!arrayContains(usedItemCategories, itemCategory)){
+           console.log("The item category "+ itemCategory+ " is not in the event "+eventUid)
+           result.push(itemCategory)
+       }
+    });
+
+    return {
+        itemCategories: result
+    }
+});
