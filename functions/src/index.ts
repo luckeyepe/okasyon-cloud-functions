@@ -2741,6 +2741,11 @@ export const logNewEvent = functions.region('asia-northeast1').firestore.documen
         console.log("Event Name: " + eventName);
         console.log("Creator ID: " + eventCreatorID);
 
+        //console add event_projected_budget_spent
+        await admin.firestore().doc("Event/"+snapshot.id).update({
+            event_projected_budget_spent: 0
+        });
+
         //increase the amount of event in an event category
         const eventCategoryPromise = await admin.firestore()
             .collection('Number_of_Events')
@@ -3913,6 +3918,88 @@ export const updateEventBudgetSpent = functions.firestore
             })
         }
     });
+
+export const updateEventBudgetSpentOnDelete = functions.firestore
+    .document("Custom_Event_Item_Category/{eventKey}/ceic_item_category/{itemCategoryKey}")
+    .onDelete(async (snapshot, context) => {
+        const deleted = snapshot.data();
+
+        const budgetSpent:number = deleted["ceic_item_actual_budget"];
+        const eventUid:string = deleted["ceic_item_event_uid"];
+        const itemCategory:string = deleted["ceic_item_item_category"];
+
+        const eventReadPromise = await admin.firestore().doc("Event/"+eventUid).get();
+        const eventRead = eventReadPromise.data();
+        const totalBudgetSpent: number = eventRead["event_budget_spent"];
+        const newTotalBudgetSpent:number = totalBudgetSpent - budgetSpent;
+
+        return admin.firestore().doc("Event/"+eventUid).update({
+            event_budget_spent: newTotalBudgetSpent
+        })
+    });
+
+export const updateEventProjectedBudgetSpent = functions.firestore
+    .document("Custom_Event_Item_Category/{eventKey}/ceic_item_category/{itemCategoryKey}")
+    .onUpdate(async (change, context) => {
+        const after = change.after.data();
+        const before = change.before.data();
+
+        if (after["ceic_item_set_budget"] === before["ceic_item_set_budget"]){
+            console.log("Money spent on the item category did not change");
+            return null;
+        }else {
+            const budgetSet:number = after["ceic_item_set_budget"];
+            const eventUid:string = after["ceic_item_event_uid"];
+            const itemCategory:string = after["ceic_item_item_category"];
+
+            const eventReadPromise = await admin.firestore().doc("Event/"+eventUid).get();
+            const eventRead = eventReadPromise.data();
+
+            const totalProjectedBudget: number = eventRead["event_projected_budget_spent"];
+            console.log("totalProjectedBudget "+ totalProjectedBudget);
+            console.log("budgetSet "+budgetSet);
+
+            if ( !isNaN(totalProjectedBudget) && totalProjectedBudget !== 0) {
+                const oldTotalBudgetSpent: number = totalProjectedBudget - before["ceic_item_set_budget"];
+                const newTotalBudgetSpent: number = oldTotalBudgetSpent + budgetSet;
+
+                return admin.firestore().doc("Event/" + eventUid).update({
+                    event_projected_budget_spent: newTotalBudgetSpent
+                })
+            }else {
+                return admin.firestore().doc("Event/"+eventUid).update({
+                    event_projected_budget_spent: budgetSet
+                })
+            }
+        }
+    });
+
+export const updateEventProjectedBudgetSpentOnDelete = functions.firestore
+    .document("Custom_Event_Item_Category/{eventKey}/ceic_item_category/{itemCategoryKey}")
+    .onDelete(async (snapshot, context) => {
+        const deleted = snapshot.data();
+        const budgetSet:number = deleted["ceic_item_set_budget"];
+        const eventUid:string = deleted["ceic_item_event_uid"];
+        const itemCategory:string = deleted["ceic_item_item_category"];
+
+        const eventReadPromise = await admin.firestore().doc("Event/"+eventUid).get();
+        const eventRead = eventReadPromise.data();
+
+        const totalProjectedBudget: number = eventRead["event_projected_budget_spent"];
+        console.log("totalProjectedBudget "+ totalProjectedBudget);
+        console.log("budgetSet "+budgetSet);
+
+        if ( !isNaN(totalProjectedBudget)) {
+            const newTotalBudgetSpent: number = totalProjectedBudget - budgetSet;
+
+            return admin.firestore().doc("Event/" + eventUid).update({
+                event_projected_budget_spent: newTotalBudgetSpent
+            })
+        }else {
+            return null
+        }
+    });
+
 
 export const getUnusedItemCategories = functions.https.onCall(async (data, context)=>{
     // const searchString:string = data.item_category;
