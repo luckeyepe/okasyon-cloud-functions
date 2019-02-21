@@ -2646,7 +2646,7 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     const storeName:string = data.store_name.toLowerCase();
     const budget:number = data.budget;
     const location:string = data.location.toLowerCase();
-    const itemScore:number = data.item_score;
+    const itemRating:number = data.item_rating;
     const isForSale: boolean = data.is_for_sale;
     let itemUids: string[] = [];
 
@@ -2663,7 +2663,26 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
 
     if (location !== ""){
         //
-        const filterWithLocationPromise = await filterWithLocation(location, itemCategory);
+        const filterWithLocationPromise:string[] = await filterWithLocation(location, itemCategory);
+        itemUids = itemUids.concat(filterWithLocationPromise)
+    }
+
+    if (itemRating>-1){
+        const resultItemUids:string[] = [];
+        const itemReadPromise = await admin.firestore().collection("Items")
+            .where("item_average_rating", "<=", itemRating+0.5)
+            .where("item_average_rating", ">=", itemRating-0.5)
+            .orderBy("item_average_rating", "desc")
+            .get();
+
+        const itemRead = itemReadPromise.docs;
+
+        itemRead.forEach(function (item) {
+            console.log("The item "+item.data()["item_uid"]+" has a rating of "+item.data()["item_average_rating"]);
+            resultItemUids.push(item.data()["item_uid"])
+        });
+
+        itemUids = itemUids.concat(resultItemUids);
     }
 
     // const itemQuery:string[] = getCleanString(data.query).split(' ');
