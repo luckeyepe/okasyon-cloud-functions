@@ -2585,7 +2585,7 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
     return itemUids
 }
 
-async function filterWithBudget(budget: number, itemCategory: string): Promise<string[]> {
+async function filterWithBudget(budget: number, itemCategory: string, isForSale: boolean): Promise<string[]> {
     const resultItemUids: string[] = [];
     const budgetTolerance: number = budget * 0.2;
     const budgetMax: number = budget + budgetTolerance;
@@ -2595,6 +2595,8 @@ async function filterWithBudget(budget: number, itemCategory: string): Promise<s
         .where("item_category_id", "==", itemCategory)
         .where("item_price", "<=", budgetMax)
         .where("item_price", ">=", budgetMin)
+        .where("item_for_sale", "==", isForSale)
+        .orderBy("item_price", "asc")
         .get();
 
     const itemRead = itemReadPromise.docs;
@@ -2639,6 +2641,39 @@ async function filterWithLocation(location: string, itemCategory: string): Promi
     return resultItemUids
 }
 
+async function filterWithItemRating(itemRating: number): Promise<string[]> {
+    const resultItemUids: string[] = [];
+    const itemReadPromise = await admin.firestore().collection("Items")
+        .where("item_average_rating", "<=", itemRating + 0.5)
+        .where("item_average_rating", ">=", itemRating - 0.5)
+        .orderBy("item_average_rating", "desc")
+        .get();
+
+    const itemRead = itemReadPromise.docs;
+
+    itemRead.forEach(function (item) {
+        console.log("The item " + item.data()["item_uid"] + " has a rating of " + item.data()["item_average_rating"]);
+        resultItemUids.push(item.data()["item_uid"])
+    });
+
+    return resultItemUids;
+}
+
+async function filterWithIsForSale(isForSale: boolean):Promise<string[]> {
+    const resultItemUids: string[] = [];
+    const itemReadPromise = await admin.firestore()
+        .collection("Items/")
+        .where("item_for_sale", "==", isForSale)
+        .get();
+
+    const itemRead = itemReadPromise.docs;
+
+    itemRead.forEach(function (item) {
+        resultItemUids.push(item.data()["item_uid"])
+    });
+    return resultItemUids;
+}
+
 //return filter items
 export const filterItems = functions.https.onCall(async (data, context)=>{
     // const searchString:string = data.item_category;
@@ -2650,109 +2685,60 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     const isForSale: boolean = data.is_for_sale;
     let itemUids: string[] = [];
 
+    console.log("Data Passed: Item Category "+itemCategory);
+    console.log("Data Passed: Store Name "+storeName);
+    console.log("Data Passed: Budget "+budget);
+    console.log("Data Passed: Location "+location);
+    console.log("Data Passed: Item Rating "+itemRating);
+    console.log("Data Passed: For Sale "+isForSale);
+
     //if only store name is given
     if (storeName !== "") {
         const filterWithStoreNamePromise:string[] = await filterWithStoreName(storeName, itemCategory);
         itemUids = itemUids.concat(filterWithStoreNamePromise)
+
+        return {
+            filterResult: itemUids
+        }
     }
 
-    if (budget > 0) {
-        const filterWithBudgetPromise:string[] = await filterWithBudget(budget, itemCategory);
+    if (budget >= 0) {
+        const filterWithBudgetPromise:string[] = await filterWithBudget(budget, itemCategory, isForSale);
         itemUids = itemUids.concat(filterWithBudgetPromise)
+
+        return {
+            filterResult: itemUids
+        }
     }
 
     if (location !== ""){
         //
         const filterWithLocationPromise:string[] = await filterWithLocation(location, itemCategory);
         itemUids = itemUids.concat(filterWithLocationPromise)
+
+        return {
+            filterResult: itemUids
+        }
     }
 
-    if (itemRating>-1){
-        const resultItemUids:string[] = [];
-        const itemReadPromise = await admin.firestore().collection("Items")
-            .where("item_average_rating", "<=", itemRating+0.5)
-            .where("item_average_rating", ">=", itemRating-0.5)
-            .orderBy("item_average_rating", "desc")
-            .get();
-
-        const itemRead = itemReadPromise.docs;
-
-        itemRead.forEach(function (item) {
-            console.log("The item "+item.data()["item_uid"]+" has a rating of "+item.data()["item_average_rating"]);
-            resultItemUids.push(item.data()["item_uid"])
-        });
-
+    if (itemRating !== 0){
+        const resultItemUids = await filterWithItemRating(itemRating);
         itemUids = itemUids.concat(resultItemUids);
+
+        return {
+            filterResult: itemUids
+        }
     }
 
-    // const itemQuery:string[] = getCleanString(data.query).split(' ');
-    // const uniqueWordArray:string[] = getUniqueWordArray(itemQuery);
-    // const uniqueWordCount:number[] = [];
-    // const holderArray: string[] = [];
-    //
-    // itemQuery.forEach(function (cleanWord) {
-    //     if (!arrayContains(holderArray, cleanWord)){
-    //         holderArray.push(cleanWord);
-    //         uniqueWordCount.push(1);
-    //     }else {
-    //         const uniqueWordIndex:number = holderArray.indexOf(cleanWord);
-    //         uniqueWordCount[uniqueWordIndex] = uniqueWordCount[uniqueWordIndex]+1;
-    //     }
-    //
-    //     const Index:number = uniqueWordArray.indexOf(cleanWord);
-    //     console.log("Unique word: "+holderArray[Index]+", the number of times it repeated "+ uniqueWordCount[Index]);
-    // });
+    itemUids.forEach(function (itemUid) {
+        console.log(itemUid)
+    });
 
-    // const itemProfileCollectionRead = await admin.firestore().collection("Item_Profile").where("item_profile_item_category", "==", itemCategory).get();
-    // const relatedItemUids: string[] = [];
-    // const retaledItemsMap: any[] = [];
-    // const itemProfileCollection = itemProfileCollectionRead.docs;
-    //
-    // itemProfileCollection.forEach(await function (itemProfile) {
-    //     const itemProfileItemUid:string = itemProfile.data()['item_profile_item_uid'];
-    //     const itemProfileAttributes: string[] = itemProfile.data()['item_profile_attribute_words'];
-    //     const itemProfileWeights: number[] = itemProfile.data()['item_profile_attribute_weights'];
-    //     let itemScore:number = 0;
-    //
-    //     uniqueWordArray.forEach(function (uniqueWord) {
-    //         if (arrayContains(itemProfileAttributes, uniqueWord)) {
-    //             console.log('The item: '+ itemProfileItemUid+' contains the word '+ uniqueWord);
-    //
-    //             const itemWeightIndex = itemProfileAttributes.indexOf(uniqueWord);
-    //             const userItemAttributeIndex = uniqueWordArray.indexOf(uniqueWord);
-    //             const numberOfWords = uniqueWordCount[userItemAttributeIndex];
-    //             const attributeWeight = itemProfileWeights[itemWeightIndex];
-    //
-    //             console.log("The value of the number of times the word "+ uniqueWord +" is repeated in the query is "+ numberOfWords);
-    //             console.log("The value of the attribute weight the word "+ uniqueWord +" in the item "+ itemProfileItemUid+" is "+ attributeWeight);
-    //             itemScore +=  numberOfWords * attributeWeight;
-    //         }
-    //     });
-    //
-    //     console.log('The item: '+ itemProfileItemUid+' has a score of '+ itemScore);
-    //     retaledItemsMap.push([itemProfileItemUid, itemScore]);
-    // });
-    //
-    // console.log("Started Sorting the Map");
-    // //sort the map based on the score for each item in ascending order
-    // const sortedArray = retaledItemsMap.sort(function (a,b) {
-    //     return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
-    // });
-    //
-    // console.log("Finished Sorting the Map");
-    //
-    // sortedArray.forEach(function (item) {
-    //     relatedItemUids.push(item[0]);
-    // });
-    //
-    // relatedItemUids.forEach(function (item) {
-    //     console.log("Recommended Item UID: "+item);
-    // });
-    //
-    // console.log("Array of related item uids has been sent");
-    // return {
-    //     itemUids: relatedItemUids
-    // }
+    itemUids = itemUids.concat(await filterWithIsForSale(isForSale));
+
+    return {
+        filterResult: itemUids
+    }
 });
 
 export const updateUserItemProfile = functions.region('asia-northeast1')
@@ -2761,7 +2747,7 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
     .onCreate(async (snapshot, context) => {
         const itemDoc = snapshot.data();
         const itemUid = itemDoc['cart_item_item_uid'];
-        const user_uid = itemDoc['cart_item_user_uid'];
+            const user_uid = itemDoc['cart_item_buyer_uid'];
 
         try{
             const getItemProfilePromise = await admin.firestore().doc('Item_Profile/'+itemUid).get();
@@ -2795,7 +2781,7 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
             console.log('The user: '+user_uid+'item profile for the category of '+itemCategory+' has been updated');
 
             //update the item list in the cart group
-            await admin.firestore().doc("")
+            await admin.firestore().doc("");
 
             return updatePromise
         }catch (e) {
@@ -2834,6 +2820,37 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
             return updatePromise
         }
 
+    });
+
+export const logNewCartItem = functions
+    .region('asia-northeast1')
+    .firestore
+    .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
+    .onCreate(async (snapshot, context) => {
+        //
+        const data = snapshot.data();
+        const cartGroupKey = data["cart_item_group_uid"];
+        const cartItemKey:string = snapshot.id;
+        const isDeliverable:boolean = data["cart_item_Deliverable"];
+        const eventUid:string = data["cart_item_event_uid"];
+
+        //get event location
+        const eventReadPromise = await admin.firestore().doc("Event/"+eventUid).get();
+        const eventRead = eventReadPromise.data();
+        const eventLocation: string = eventRead["event_location"];
+
+        if (isDeliverable){
+            //update the cartkey to the document
+            return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
+                cart_item_id: cartItemKey,
+                cart_item_delivery_location: eventLocation
+            })
+        }else {
+            //update the cartkey to the document
+            return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
+                cart_item_id: cartItemKey
+            })
+        }
     });
 
 //Events//
