@@ -2546,26 +2546,31 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
     const storeNameKeywords: string[] = storeName.split(" ");
     const query = admin.firestore().collection("Store");
 
-    storeNameKeywords.forEach(async function (keyword) {
-        try {
-            query.where("store_name_keywords", "array-contains", keyword).get();
-        }catch (e) {
+    // storeNameKeywords.forEach(async function (keyword) {
+    //     console.log("The name key word is "+keyword);
+    //     query.where("store_name_keywords", "array-contains", keyword)
+    // });
 
-        }
-    });
     const getStoreIDPromise = await query.get();
-
     const getStoreID = getStoreIDPromise.docs;
 
     getStoreID.forEach(function (store) {
         const storeData = store.data();
         const storeUid: string = storeData["store_uid"];
+        const storeNameWords: string[] = storeData['store_name_keywords'];
+
+         for (let x = 0; x<storeNameKeywords.length; x++){
+             if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+                 console.log("The store "+storeUid+" is a match");
+                 break;
+             }
+         }
+
         storeUids.push(storeUid);
     });
 
     //get items from the stores
     storeUids.forEach(async function (storeUid) {
-        //
         const getItemsReadPromise = await admin.firestore()
             .collection("Items")
             .where("item_store_id", "==", storeUid)
@@ -2575,10 +2580,10 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
         const getItemRead = getItemsReadPromise.docs;
 
         if (getItemRead.length > 0) {
-            //
             getItemRead.forEach(function (item) {
+                console.log("The store "+storeUid+" has an item "+item.data()["item_uid"]);
                 itemUids.push(item.data()["item_uid"])
-            })
+            });
         }
     });
 
@@ -2695,7 +2700,7 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     //if only store name is given
     if (storeName !== "") {
         const filterWithStoreNamePromise:string[] = await filterWithStoreName(storeName, itemCategory);
-        itemUids = itemUids.concat(filterWithStoreNamePromise)
+        itemUids = itemUids.concat(filterWithStoreNamePromise);
 
         return {
             filterResult: itemUids
