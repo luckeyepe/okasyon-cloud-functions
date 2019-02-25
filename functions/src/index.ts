@@ -2540,16 +2540,38 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     }
 });
 
+async function getItemsFromStore(storeUids: string[], itemCategory: string): Promise<string[]> {
+    const itemUids: string[]= [];
+
+    for (let x = 0; x<storeUids.length; x++){
+        const storeUid = storeUids[x];
+
+        console.log("From store "+storeUid);
+
+        const getItemsReadPromise = await admin.firestore()
+            .collection("Items")
+            .where("item_store_id", "==", storeUid)
+            .where("item_category_id", "==", itemCategory)
+            .get();
+
+        const getItemRead = getItemsReadPromise.docs;
+
+        if (getItemRead.length > 0) {
+            getItemRead.forEach(function (item) {
+                console.log("The store " + storeUid + " has an item " + item.data()["item_uid"]);
+                itemUids.push(item.data()["item_uid"])
+            });
+        }
+    }
+
+    return itemUids
+}
+
 async function filterWithStoreName(storeName: string, itemCategory: string): Promise<string[]> {
-    const itemUids: string[] = [];
     const storeUids: string[] = [];
+    const matchingStoreUids: string[] = [];
     const storeNameKeywords: string[] = storeName.split(" ");
     const query = admin.firestore().collection("Store");
-
-    // storeNameKeywords.forEach(async function (keyword) {
-    //     console.log("The name key word is "+keyword);
-    //     query.where("store_name_keywords", "array-contains", keyword)
-    // });
 
     const getStoreIDPromise = await query.get();
     const getStoreID = getStoreIDPromise.docs;
@@ -2562,6 +2584,7 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
          for (let x = 0; x<storeNameKeywords.length; x++){
              if (arrayContains(storeNameWords, storeNameKeywords[x])) {
                  console.log("The store "+storeUid+" is a match");
+                 matchingStoreUids.push(storeUid);
                  break;
              }
          }
@@ -2570,24 +2593,9 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
     });
 
     //get items from the stores
-    storeUids.forEach(async function (storeUid) {
-        const getItemsReadPromise = await admin.firestore()
-            .collection("Items")
-            .where("item_store_id", "==", storeUid)
-            .where("item_category_id", "==", itemCategory)
-            .get();
+    console.log("Returning the item list");
 
-        const getItemRead = getItemsReadPromise.docs;
-
-        if (getItemRead.length > 0) {
-            getItemRead.forEach(function (item) {
-                console.log("The store "+storeUid+" has an item "+item.data()["item_uid"]);
-                itemUids.push(item.data()["item_uid"])
-            });
-        }
-    });
-
-    return itemUids
+    return getItemsFromStore(matchingStoreUids, itemCategory);
 }
 
 async function filterWithBudget(budget: number, itemCategory: string, isForSale: boolean): Promise<string[]> {
@@ -2614,36 +2622,46 @@ async function filterWithBudget(budget: number, itemCategory: string, isForSale:
 }
 
 async function filterWithLocation(location: string, itemCategory: string): Promise<string[]> {
-    const resultItemUids: string[] = [];
-    const resultStoreUids: string[] = [];
+    const matchingStoreUids:string[] = [];
+
     const query = admin.firestore().collection("Store");
     const locationKeywords = location.split(" ");
-
-    locationKeywords.forEach(function (keyword) {
-        query.where("store_location_keywords", "array-contains", keyword)
-    });
 
     const queryResultPromise = await query.get();
     const queryResult = queryResultPromise.docs;
 
-    queryResult.forEach(function (result) {
-        resultStoreUids.push(result.data()["store_uid"])
+    queryResult.forEach(function (store) {
+        const storeData = store.data();
+        const storeUid: string = storeData["store_uid"];
+        const storeLocationWords: string[] = storeData['store_location_keywords'];
+
+        for (let x = 0; x<locationKeywords.length; x++){
+            if (arrayContains(storeLocationWords, locationKeywords[x])) {
+                console.log("The store "+storeUid+" is a match");
+                matchingStoreUids.push(storeUid);
+                break;
+            }
+        }
     });
 
-    resultStoreUids.forEach(async function (storeUid) {
-        const itemReadPromise = await admin.firestore()
-            .collection("Items")
-            .where("item_category_id", "==", itemCategory)
-            .where("item_store_id", '==', storeUid).get();
+    console.log("Returning the item list");
 
-        const itemRead = itemReadPromise.docs;
-
-        itemRead.forEach(function (item) {
-            resultItemUids.push(item.id)
-        })
-    });
-
-    return resultItemUids
+    return getItemsFromStore(matchingStoreUids, itemCategory);
+    //
+    // resultStoreUids.forEach(async function (storeUid) {
+    //     const itemReadPromise = await admin.firestore()
+    //         .collection("Items")
+    //         .where("item_category_id", "==", itemCategory)
+    //         .where("item_store_id", '==', storeUid).get();
+    //
+    //     const itemRead = itemReadPromise.docs;
+    //
+    //     itemRead.forEach(function (item) {
+    //         resultItemUids.push(item.id)
+    //     })
+    // });
+    //
+    // return resultItemUids
 }
 
 async function filterWithItemRating(itemRating: number): Promise<string[]> {
@@ -2698,7 +2716,10 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     console.log("Data Passed: For Sale "+isForSale);
 
     //if only store name is given
-    if (storeName !== "") {
+    if (storeName !== "" &&
+        budget <= 0 &&
+        location === "" &&
+        itemRating === 0) {
         const filterWithStoreNamePromise:string[] = await filterWithStoreName(storeName, itemCategory);
         itemUids = itemUids.concat(filterWithStoreNamePromise);
 
@@ -2707,17 +2728,23 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         }
     }
 
-    if (budget >= 0) {
+    if (budget > 0 &&
+        storeName === "" &&
+        location === "" &&
+        itemRating === 0) {
         const filterWithBudgetPromise:string[] = await filterWithBudget(budget, itemCategory, isForSale);
-        itemUids = itemUids.concat(filterWithBudgetPromise)
+        itemUids = itemUids.concat(filterWithBudgetPromise);
 
         return {
             filterResult: itemUids
         }
     }
 
-    if (location !== ""){
-        //
+    //filter with location only
+    if (location !== "" &&
+        storeName !== "" &&
+        budget <= 0 &&
+        itemRating === 0){
         const filterWithLocationPromise:string[] = await filterWithLocation(location, itemCategory);
         itemUids = itemUids.concat(filterWithLocationPromise)
 
@@ -2726,7 +2753,11 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         }
     }
 
-    if (itemRating !== 0){
+    //filter with item rating only
+    if (itemRating !== 0 &&
+        storeName === "" &&
+        budget <= 0 &&
+        location === ""){
         const resultItemUids = await filterWithItemRating(itemRating);
         itemUids = itemUids.concat(resultItemUids);
 
@@ -2739,7 +2770,18 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         console.log(itemUid)
     });
 
-    itemUids = itemUids.concat(await filterWithIsForSale(isForSale));
+    //is for sale only
+    if (itemRating === 0 &&
+        storeName === "" &&
+        budget <= 0 &&
+        location === ""){
+        itemUids = itemUids.concat(await filterWithIsForSale(isForSale));
+
+        return {
+            filterResult: itemUids
+        }
+    }
+
 
     return {
         filterResult: itemUids
