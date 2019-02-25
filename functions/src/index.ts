@@ -3133,8 +3133,8 @@ export const updateUserItemProfile = functions.region('asia-northeast1')
 
             console.log('The user: '+user_uid+'item profile for the category of '+itemCategory+' has been updated');
 
-            //update the item list in the cart group
-            await admin.firestore().doc("");
+            // //update the item list in the cart group
+            // await admin.firestore().doc("");
 
             return updatePromise
         }catch (e) {
@@ -3180,7 +3180,6 @@ export const logNewCartItem = functions
     .firestore
     .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
     .onCreate(async (snapshot, context) => {
-        //
         const data = snapshot.data();
         const cartGroupKey = data["cart_item_group_uid"];
         const cartItemKey:string = snapshot.id;
@@ -3194,16 +3193,50 @@ export const logNewCartItem = functions
 
         if (isDeliverable){
             //update the cartkey to the document
+            console.log("Updating the cart item uid to "+ cartItemKey+" and location to "+ eventLocation);
             return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
                 cart_item_id: cartItemKey,
                 cart_item_delivery_location: eventLocation
             })
         }else {
             //update the cartkey to the document
+            console.log("Updating the cart item uid to "+ cartItemKey);
             return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
                 cart_item_id: cartItemKey
             })
         }
+    });
+
+export const updateItemCategorySpentBudget = functions
+    .region('asia-northeast1')
+    .firestore
+    .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
+    .onCreate(async (snapshot, context) => {
+        const data = snapshot.data();
+        const cartCost: number = data["cart_item_order_cost"];
+        const eventUid:string = data["cart_item_event_uid"];
+        const cartItemItemUid: string = data["cart_item_item_uid"];
+
+        const itemReadPromise = await admin.firestore().doc("Items/"+cartItemItemUid).get();
+        const itemRead = itemReadPromise.data();
+
+        const itemCategory:string = itemRead["item_category_id"];
+
+        const customItemCategoryReadPromise = await admin.firestore()
+            .doc("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category/"+itemCategory)
+            .get();
+
+        const customItemCategoryRead = customItemCategoryReadPromise.data();
+        const currentSpentBudget:number = customItemCategoryRead["ceic_item_actual_budget"];
+        console.log("Old budget spent "+currentSpentBudget);
+        console.log("Cart cost "+ cartCost);
+
+        const updatedBudget = currentSpentBudget + cartCost;
+        console.log("Updated budget spent is "+updatedBudget);
+
+        return admin.firestore().doc("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category/"+itemCategory).update({
+            ceic_item_actual_budget: updatedBudget
+        })
     });
 
 //Events//
@@ -4515,5 +4548,85 @@ export const getUnusedItemCategories = functions.https.onCall(async (data, conte
 
     return {
         itemCategories: result
+    }
+});
+
+export const searchForEvent = functions.https.onCall(async (data, context)=>{
+    // const searchString:string = data.item_category;
+    const eventQuery:string[] = getCleanString(data.query).split(' ');
+    const uniqueWordArray:string[] = getUniqueWordArray(eventQuery);
+    const uniqueWordCount:number[] = [];
+    const holderArray: string[] = [];
+
+    eventQuery.forEach(function (cleanWord) {
+        if (!arrayContains(holderArray, cleanWord)){
+            holderArray.push(cleanWord);
+            uniqueWordCount.push(1);
+        }else {
+            const uniqueWordIndex:number = holderArray.indexOf(cleanWord);
+            uniqueWordCount[uniqueWordIndex] = uniqueWordCount[uniqueWordIndex]+1;
+        }
+
+        const Index:number = uniqueWordArray.indexOf(cleanWord);
+        console.log("Unique word: "+holderArray[Index]+", the number of times it repeated "+ uniqueWordCount[Index]);
+    });
+
+    const eventProfileCollectionRead = await admin.firestore().collection("Event_Profile").get();
+    const relatedEventsUids: string[] = [];
+    const relatedEventsMap: any[] = [];
+    const EventProfileCollection = eventProfileCollectionRead.docs;
+
+    await EventProfileCollection.forEach(await function (eventProfile) {
+        const eventProfileEventUid:string = eventProfile.data()['event_profile_event_uid'];
+        const eventProfileAttributes: string[] = eventProfile.data()['event_profile_attribute_words'];
+        const eventProfileWeights: number[] = eventProfile.data()['event_profile_attribute_weights'];
+        let eventScore:number = 0;
+
+        uniqueWordArray.forEach(function (uniqueWord) {
+            if (arrayContains(eventProfileAttributes, uniqueWord)) {
+                console.log('The event: '+ eventProfileEventUid+' contains the word '+ uniqueWord);
+
+                const eventWeightIndex = eventProfileAttributes.indexOf(uniqueWord);
+                const userEventAttributeIndex = uniqueWordArray.indexOf(uniqueWord);
+                const numberOfWords = uniqueWordCount[userEventAttributeIndex];
+                const attributeWeight = eventProfileWeights[eventWeightIndex];
+
+                console.log("The value of the number of times the word "+ uniqueWord +" is repeated in the query is "+ numberOfWords);
+                console.log("The value of the attribute weight the word "+ uniqueWord +" in the item "+ eventProfileEventUid+" is "+ attributeWeight);
+                eventScore +=  numberOfWords * attributeWeight;
+            }
+        });
+
+        if (eventScore>0) {
+            console.log('The item: ' + eventProfileEventUid + ' has a score of ' + eventScore);
+            relatedEventsMap.push([eventProfileEventUid, eventScore]);
+        }
+        // const isPrivate:boolean = eventRead['event_is_private'];
+        //
+        // if (eventScore>0 && !isPrivate) {
+        //     console.log('The item: ' + eventProfileEventUid + ' has a score of ' + eventScore);
+        //     relatedEventsMap.push([eventProfileEventUid, eventScore]);
+        // }
+    });
+
+    console.log("Started Sorting the Map");
+    //sort the map based on the score for each item in ascending order
+    const sortedArray = relatedEventsMap.sort(function (a,b) {
+        return a[1]<b[1]? 1:a[1]>b[1]?-1:0;
+    });
+
+    console.log("Finished Sorting the Map");
+
+    sortedArray.forEach(function (item) {
+        relatedEventsUids.push(item[0]);
+    });
+
+    relatedEventsUids.forEach(function (item) {
+        console.log("Recommended Event UID: "+item);
+    });
+
+    console.log("Array of related event uids has been sent");
+    return {
+        event_uids: relatedEventsUids
     }
 });
