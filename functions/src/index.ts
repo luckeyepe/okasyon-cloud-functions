@@ -2540,7 +2540,7 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     }
 });
 
-async function getItemsFromStore(storeUids: string[], itemCategory: string): Promise<string[]> {
+async function getItemsFromStore(storeUids: string[], itemCategory: string, isForSale: boolean): Promise<string[]> {
     const itemUids: string[]= [];
 
     for (let x = 0; x<storeUids.length; x++){
@@ -2552,6 +2552,7 @@ async function getItemsFromStore(storeUids: string[], itemCategory: string): Pro
             .collection("Items")
             .where("item_store_id", "==", storeUid)
             .where("item_category_id", "==", itemCategory)
+            .where("item_for_sale", "==", isForSale)
             .get();
 
         const getItemRead = getItemsReadPromise.docs;
@@ -2567,7 +2568,7 @@ async function getItemsFromStore(storeUids: string[], itemCategory: string): Pro
     return itemUids
 }
 
-async function filterWithStoreName(storeName: string, itemCategory: string): Promise<string[]> {
+async function filterWithStoreName(storeName: string, itemCategory: string, isForSale: boolean): Promise<string[]> {
     const storeUids: string[] = [];
     const matchingStoreUids: string[] = [];
     const storeNameKeywords: string[] = storeName.split(" ");
@@ -2595,7 +2596,240 @@ async function filterWithStoreName(storeName: string, itemCategory: string): Pro
     //get items from the stores
     console.log("Returning the item list");
 
-    return getItemsFromStore(matchingStoreUids, itemCategory);
+    return getItemsFromStore(matchingStoreUids, itemCategory, isForSale);
+}
+
+async function getItemsWithFilters(itemUids: string[], budget: number, isForSale: boolean, rating: number): Promise<string[]> {
+    const resultItemUids:string[] = [];
+
+    for (let x = 0; x < itemUids.length; x++) {
+        const itemUid = itemUids[x];
+        let query = admin.firestore()
+            .collection("Items")
+            .where("item_uid", "==", itemUid)
+            .where("item_for_sale","==", isForSale);
+
+        if (rating>0){
+            console.log("The base rating is " + rating);
+            const minRating:number = rating-0.5;
+            const maxRating:number = rating+0.5;
+
+            query = query.where("item_average_rating","<", maxRating)
+                .where("item_average_rating",">=", minRating)
+        }
+
+        if (budget >= 0) {
+            console.log("The base budget is " + budget);
+
+            const maxBudget:number = budget + (budget * 0.2);
+            const minBudget:number = budget - (budget * 0.2);
+
+            query = query.where("item_price","<=", maxBudget)
+                .where("item_price",">=", minBudget)
+        }
+
+        console.log("Checking items " + itemUid);
+
+        const itemReadPromise = await query.get();
+        const itemRead = itemReadPromise.docs;
+
+        itemRead.forEach(function (item) {
+            const itemData = item.data();
+            const itemDataUid:string = itemData["item_uid"];
+
+            resultItemUids.push(itemDataUid);
+        });
+    }
+
+    console.log("Returning filtered items");
+    return resultItemUids
+}
+
+async function filterWithStoreNameAndOthers(storeName: string,
+                                            itemCategory: string,
+                                            budget: number,
+                                            rating: number,
+                                            isForSale: boolean): Promise<string[]> {
+    const resultItemUids: string[] = [];
+    const storeUids: string[] = [];
+    const matchingStoreUids: string[] = [];
+    const storeNameKeywords: string[] = storeName.split(" ");
+    const query = admin.firestore().collection("Store");
+
+    const getStoreIDPromise = await query.get();
+    const getStoreID = getStoreIDPromise.docs;
+
+    getStoreID.forEach(function (store) {
+        const storeData = store.data();
+        const storeUid: string = storeData["store_uid"];
+        const storeNameWords: string[] = storeData['store_name_keywords'];
+
+        for (let x = 0; x<storeNameKeywords.length; x++){
+            if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+                console.log("The store "+storeUid+" is a match");
+                matchingStoreUids.push(storeUid);
+                break;
+            }
+        }
+
+        storeUids.push(storeUid);
+    });
+
+    const itemUids: string[] =  await getItemsFromStore(matchingStoreUids, itemCategory, isForSale);
+
+
+    console.log("Returning all the filtered items");
+    return getItemsWithFilters(itemUids, budget, isForSale, rating);
+}
+
+async function filterWithStoreNameAndLocationAndOthers(storeName: string,
+                                            location: string,
+                                            itemCategory: string,
+                                            budget: number,
+                                            rating: number,
+                                            isForSale: boolean): Promise<string[]> {
+    const resultItemUids: string[] = [];
+    const storeUids: string[] = [];
+    const matchingStoreUids: string[] = [];
+    const storeLocationKeyWords:string[] = location.split(" ");
+    const storeNameKeywords: string[] = storeName.split(" ");
+    const query = admin.firestore().collection("Store");
+
+    const getStoreIDPromise = await query.get();
+    const getStoreID = getStoreIDPromise.docs;
+
+    getStoreID.forEach(function (store) {
+        const storeData = store.data();
+        const storeUid: string = storeData["store_uid"];
+        const storeNameWords: string[] = storeData['store_name_keywords'];
+        const storeLocationWords: string[] = storeData['store_location_keywords'];
+
+        for (let x = 0; x<storeNameKeywords.length; x++){
+            if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+                console.log("The store "+storeUid+" is a match");
+
+                for(let y =0; y<storeLocationKeyWords.length; y++){
+                    if (arrayContains(storeNameWords, storeLocationWords[y])){
+                        matchingStoreUids.push(storeUid);
+                        break;
+                    }
+                }
+
+                if (arrayContains(matchingStoreUids, storeUid)){
+                    break
+                }
+            }
+        }
+
+        storeUids.push(storeUid);
+    });
+
+    const itemUids: string[] =  await getItemsFromStore(matchingStoreUids, itemCategory, isForSale);
+
+    console.log("Returning all the filtered items");
+
+    return getItemsWithFilters(itemUids, budget, isForSale, rating);
+    // for (let x =0; x<itemUids.length; x++){
+    //     const itemUid = itemUids[x];
+    //     const itemReadPromise = await admin.firestore().collection("Items").where("item_uid", "==", itemUid).get()
+    //     const itemRead = itemReadPromise.docs[0].data();
+    //     const itemPrice:number = itemRead["item_price"];
+    //     const itemAverageRating: number = itemRead["item_average_rating"];
+    //     const itemIsForSale:boolean = itemRead["item_is_for_sale"];
+    //
+    //     const maxBudget = budget + (budget *0.2);
+    //     const minBudget = budget - (budget * 0.2);
+    //
+    //     if(itemIsForSale === isForSale){
+    //         if (rating>=0){
+    //             if (itemAverageRating<=rating){
+    //                 if (maxBudget>=0 && minBudget>=0){
+    //                     if (itemPrice<=maxBudget && itemPrice>=minBudget){
+    //                         resultItemUids.push(itemUid)
+    //                     }
+    //                 } else {
+    //                     resultItemUids.push(itemUid)
+    //                 }
+    //             }
+    //         }else {
+    //             if (maxBudget>=0 && minBudget>=0){
+    //                 if (itemPrice<=maxBudget && itemPrice>=minBudget){
+    //                     resultItemUids.push(itemUid)
+    //                 }
+    //             }else {
+    //                 resultItemUids.push(itemUid)
+    //             }
+    //         }
+    //     }
+    // }
+}
+
+async function filterWithLocationAndOthers(location: string,
+                                           itemCategory: string,
+                                           budget: number,
+                                           rating: number,
+                                           isForSale: boolean): Promise<string[]> {
+    const resultItemUids: string[] = [];
+    const storeUids: string[] = [];
+    const matchingStoreUids: string[] = [];
+    const storeLocationKeyWords:string[] = location.split(" ");
+    const query = admin.firestore().collection("Store");
+
+    const queryResultPromise = await query.get();
+    const queryResult = queryResultPromise.docs;
+
+    queryResult.forEach(function (store) {
+        const storeData = store.data();
+        const storeUid: string = storeData["store_uid"];
+        const storeLocationWords: string[] = storeData['store_location_keywords'];
+
+        for (let x = 0; x<storeLocationKeyWords.length; x++){
+            if (arrayContains(storeLocationWords, storeLocationKeyWords[x])) {
+                console.log("The store "+storeUid+" is a match");
+                matchingStoreUids.push(storeUid);
+                break;
+            }
+        }
+    });
+
+    const itemUids: string[] =  await getItemsFromStore(matchingStoreUids, itemCategory, isForSale);
+
+    console.log("Returning all the filtered items");
+
+    return getItemsWithFilters(itemUids, budget, isForSale, rating);
+    // for (let x =0; x<itemUids.length; x++){
+    //     const itemUid = itemUids[x];
+    //     const itemReadPromise = await admin.firestore().collection("Items").where("item_uid", "==", itemUid).get()
+    //     const itemRead = itemReadPromise.docs[0].data();
+    //     const itemPrice:number = itemRead["item_price"];
+    //     const itemAverageRating: number = itemRead["item_average_rating"];
+    //     const itemIsForSale:boolean = itemRead["item_is_for_sale"];
+    //
+    //     const maxBudget = budget + (budget *0.2);
+    //     const minBudget = budget - (budget * 0.2);
+    //
+    //     if(itemIsForSale === isForSale){
+    //         if (rating>=0){
+    //             if (itemAverageRating<=rating){
+    //                 if (maxBudget>=0 && minBudget>=0){
+    //                     if (itemPrice<=maxBudget && itemPrice>=minBudget){
+    //                         resultItemUids.push(itemUid)
+    //                     }
+    //                 } else {
+    //                     resultItemUids.push(itemUid)
+    //                 }
+    //             }
+    //         }else {
+    //             if (maxBudget>=0 && minBudget>=0){
+    //                 if (itemPrice<=maxBudget && itemPrice>=minBudget){
+    //                     resultItemUids.push(itemUid)
+    //                 }
+    //             }else {
+    //                 resultItemUids.push(itemUid)
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 async function filterWithBudget(budget: number, itemCategory: string, isForSale: boolean): Promise<string[]> {
@@ -2621,7 +2855,7 @@ async function filterWithBudget(budget: number, itemCategory: string, isForSale:
     return resultItemUids
 }
 
-async function filterWithLocation(location: string, itemCategory: string): Promise<string[]> {
+async function filterWithLocation(location: string, itemCategory: string, isForSale: boolean): Promise<string[]> {
     const matchingStoreUids:string[] = [];
 
     const query = admin.firestore().collection("Store");
@@ -2646,11 +2880,10 @@ async function filterWithLocation(location: string, itemCategory: string): Promi
 
     console.log("Returning the item list");
 
-    return getItemsFromStore(matchingStoreUids, itemCategory);
+    return getItemsFromStore(matchingStoreUids, itemCategory, isForSale);
     //
     // resultStoreUids.forEach(async function (storeUid) {
     //     const itemReadPromise = await admin.firestore()
-    //         .collection("Items")
     //         .where("item_category_id", "==", itemCategory)
     //         .where("item_store_id", '==', storeUid).get();
     //
@@ -2664,18 +2897,23 @@ async function filterWithLocation(location: string, itemCategory: string): Promi
     // return resultItemUids
 }
 
-async function filterWithItemRating(itemRating: number): Promise<string[]> {
+async function filterWithItemRating(itemRating: number, isForSale: boolean): Promise<string[]> {
     const resultItemUids: string[] = [];
+
     const itemReadPromise = await admin.firestore().collection("Items")
         .where("item_average_rating", "<=", itemRating + 0.5)
         .where("item_average_rating", ">=", itemRating - 0.5)
         .orderBy("item_average_rating", "desc")
+        .where("item_for_sale", "==", isForSale)
         .get();
 
     const itemRead = itemReadPromise.docs;
 
     itemRead.forEach(function (item) {
-        console.log("The item " + item.data()["item_uid"] + " has a rating of " + item.data()["item_average_rating"]);
+        console.log("The item " + item.data()["item_uid"]
+            + " has a rating of " + item.data()["item_average_rating"]
+        + " it is for sale: "+ isForSale);
+
         resultItemUids.push(item.data()["item_uid"])
     });
 
@@ -2717,10 +2955,12 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
 
     //if only store name is given
     if (storeName !== "" &&
-        budget <= 0 &&
+        budget < 0 &&
         location === "" &&
         itemRating === 0) {
-        const filterWithStoreNamePromise:string[] = await filterWithStoreName(storeName, itemCategory);
+        console.log("Filtering with only store name");
+
+        const filterWithStoreNamePromise:string[] = await filterWithStoreName(storeName, itemCategory, isForSale);
         itemUids = itemUids.concat(filterWithStoreNamePromise);
 
         return {
@@ -2728,10 +2968,12 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         }
     }
 
+    //for budget only
     if (budget > 0 &&
         storeName === "" &&
         location === "" &&
         itemRating === 0) {
+        console.log("Filtering with only budget");
         const filterWithBudgetPromise:string[] = await filterWithBudget(budget, itemCategory, isForSale);
         itemUids = itemUids.concat(filterWithBudgetPromise);
 
@@ -2743,9 +2985,11 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     //filter with location only
     if (location !== "" &&
         storeName !== "" &&
-        budget <= 0 &&
+        budget < 0 &&
         itemRating === 0){
-        const filterWithLocationPromise:string[] = await filterWithLocation(location, itemCategory);
+        console.log("Filtering with only location");
+
+        const filterWithLocationPromise:string[] = await filterWithLocation(location, itemCategory, isForSale);
         itemUids = itemUids.concat(filterWithLocationPromise)
 
         return {
@@ -2756,9 +3000,11 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     //filter with item rating only
     if (itemRating !== 0 &&
         storeName === "" &&
-        budget <= 0 &&
+        budget < 0 &&
         location === ""){
-        const resultItemUids = await filterWithItemRating(itemRating);
+        console.log("Filtering with rating only");
+
+        const resultItemUids = await filterWithItemRating(itemRating, isForSale);
         itemUids = itemUids.concat(resultItemUids);
 
         return {
@@ -2773,8 +3019,10 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
     //is for sale only
     if (itemRating === 0 &&
         storeName === "" &&
-        budget <= 0 &&
+        budget < 0 &&
         location === ""){
+        console.log("Filtering with isForSale only");
+
         itemUids = itemUids.concat(await filterWithIsForSale(isForSale));
 
         return {
@@ -2782,6 +3030,64 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         }
     }
 
+    //if store name is given along with other filters; except for store location
+    if (storeName !== "" &&
+        location === "") {
+        console.log("Filtering with store name and other filters without location");
+        // const filterWithStoreNamePromise:string[] =
+        //     await filterWithStoreNameAndOthers(storeName,
+        //         itemCategory,
+        //         budget,
+        //         itemRating,
+        //         isForSale);
+        // itemUids = itemUids.concat(filterWithStoreNamePromise);
+
+        return {
+            filterResult: await filterWithStoreNameAndOthers(storeName,
+                itemCategory,
+                budget,
+                itemRating,
+                isForSale)
+        }
+    }
+
+    //if store name is given along with other filters;
+    if (storeName !== "" &&
+        location !== "") {
+        console.log("Filtering with storename and location and others");
+
+        const filterWithStoreNamePromise:string[] =
+            await filterWithStoreNameAndLocationAndOthers(storeName,
+                location,
+                itemCategory,
+                budget,
+                itemRating,
+                isForSale);
+        itemUids = itemUids.concat(filterWithStoreNamePromise);
+
+        return {
+            filterResult: itemUids
+        }
+    }
+
+    //if location is given along with other filters; except for store name
+    if (storeName === "" &&
+        location !== "") {
+        console.log("Filtering with and location and others");
+
+        const filterWithStoreNamePromise:string[] =
+            await filterWithLocationAndOthers(location,
+                itemCategory,
+                budget,
+                itemRating,
+                isForSale);
+
+        itemUids = itemUids.concat(filterWithStoreNamePromise);
+
+        return {
+            filterResult: itemUids
+        }
+    }
 
     return {
         filterResult: itemUids
