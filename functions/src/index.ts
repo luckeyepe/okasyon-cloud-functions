@@ -3239,6 +3239,37 @@ export const updateItemCategorySpentBudget = functions
         })
     });
 
+export const updateItemCategorySpentBudgetOnDelete = functions
+    .region('asia-northeast1')
+    .firestore
+    .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
+    .onDelete(async (snapshot, context) => {
+        const data = snapshot.data();
+        const cartCost: number = data["cart_item_order_cost"];
+        const eventUid:string = data["cart_item_event_uid"];
+        const cartItemItemUid: string = data["cart_item_item_uid"];
+
+        const itemReadPromise = await admin.firestore().doc("Items/"+cartItemItemUid).get();
+        const itemRead = itemReadPromise.data();
+
+        const itemCategory:string = itemRead["item_category_id"];
+
+        const customItemCategoryReadPromise = await admin.firestore()
+            .doc("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category/"+itemCategory)
+            .get();
+
+        const customItemCategoryRead = customItemCategoryReadPromise.data();
+        const currentSpentBudget:number = customItemCategoryRead["ceic_item_actual_budget"];
+        console.log("Old budget spent "+currentSpentBudget);
+        console.log("Cart cost "+ cartCost);
+
+        const updatedBudget = currentSpentBudget - cartCost;
+        console.log("Updated budget spent is "+updatedBudget);
+
+        return admin.firestore().doc("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category/"+itemCategory).update({
+            ceic_item_actual_budget: updatedBudget
+        })
+    });
 //Events//
 
 export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
