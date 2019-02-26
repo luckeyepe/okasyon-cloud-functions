@@ -56,10 +56,6 @@ exports.notifyNewNotificationMessage = functions.firestore
                 case "image":
                     notificationBody = "You received a new image message";
                     break;
-
-                case "emergency":
-                    notificationBody = "Please help me";
-                    break;
             }
 
             const payload = {
@@ -3196,13 +3192,15 @@ export const logNewCartItem = functions
             console.log("Updating the cart item uid to "+ cartItemKey+" and location to "+ eventLocation);
             return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
                 cart_item_id: cartItemKey,
-                cart_item_delivery_location: eventLocation
+                cart_item_delivery_location: eventLocation,
+                cart_item_in_transaction: false
             })
         }else {
             //update the cartkey to the document
             console.log("Updating the cart item uid to "+ cartItemKey);
             return admin.firestore().doc("Cart_Items/"+cartGroupKey+"/cart_items/"+cartItemKey).update({
-                cart_item_id: cartItemKey
+                cart_item_id: cartItemKey,
+                cart_item_in_transaction:false
             })
         }
     });
@@ -3270,6 +3268,41 @@ export const updateItemCategorySpentBudgetOnDelete = functions
             ceic_item_actual_budget: updatedBudget
         })
     });
+
+//Transaction//
+export const logNewTrasactionItems = functions
+    .region('asia-northeast1')
+    .firestore
+    .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
+    .onUpdate((change, context) => {
+       const after = change.after.data();
+       const before = change.before.data();
+       
+       if (after["cart_item_in_transaction"] === before["cart_item_in_transaction"]){
+           return null;
+       } else {
+           if (after["cart_item_in_transaction"] === true){
+                //
+               const isDeliverable = after["cart_item_Deliverable"];
+               const itemRating = after["cart_item_Rating"];
+               const buyerUID = after["cart_item_buyer_uid"];
+               const deliverLocation = after["cart_item_delivery_location"];
+               const eventUID = after["cart_item_event_uid"];
+               const itemUID = after["cart_item_item_uid"];
+               const itemCount = after["cart_item_item_count"];
+               const itemPrice = after["cart_item_item_price"];
+               const itemName = after["cart_item_name"];
+               const orderCost = after["cart_item_order_cost"];
+               const startRent = after["cart_item_rent_end_date"];
+               const endRent = after["cart_item_rent_start_date"];
+
+           } else {
+               return null;
+           }
+       }
+    });
+
+
 //Events//
 
 export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
