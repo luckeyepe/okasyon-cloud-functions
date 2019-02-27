@@ -4,6 +4,7 @@ import {strictEqual} from "assert";
 import {Console} from "inspector";
 import enableLogging = admin.database.enableLogging;
 import {event} from "firebase-functions/lib/providers/analytics";
+import {start} from "repl";
 
 admin.initializeApp();
 
@@ -3274,7 +3275,7 @@ export const logNewTrasactionItems = functions
     .region('asia-northeast1')
     .firestore
     .document("Cart_Items/{cartGroupKey}/cart_items/{cartItemKey}")
-    .onUpdate((change, context) => {
+    .onUpdate(async  (change, context) => {
        const after = change.after.data();
        const before = change.before.data();
        
@@ -3283,19 +3284,74 @@ export const logNewTrasactionItems = functions
        } else {
            if (after["cart_item_in_transaction"] === true){
                 //
-               const isDeliverable = after["cart_item_Deliverable"];
-               const itemRating = after["cart_item_Rating"];
-               const buyerUID = after["cart_item_buyer_uid"];
-               const deliverLocation = after["cart_item_delivery_location"];
-               const eventUID = after["cart_item_event_uid"];
-               const itemUID = after["cart_item_item_uid"];
-               const itemCount = after["cart_item_item_count"];
-               const itemPrice = after["cart_item_item_price"];
-               const itemName = after["cart_item_name"];
-               const orderCost = after["cart_item_order_cost"];
-               const startRent = after["cart_item_rent_end_date"];
-               const endRent = after["cart_item_rent_start_date"];
+               const isDeliverable:boolean = after["cart_item_Deliverable"];
+               const itemRating:number = after["cart_item_Rating"];
+               const buyerUID:string = after["cart_item_buyer_uid"];
+               const deliverLocation:string = after["cart_item_delivery_location"];
+               const eventUID:string = after["cart_item_event_uid"];
+               const itemUID:string = after["cart_item_item_uid"];
+               const itemCount:number = after["cart_item_item_count"];
+               const itemPrice:number = after["cart_item_item_price"];
+               const itemName:string = after["cart_item_name"];
+               const orderCost:number = after["cart_item_order_cost"];
+               const startRent:string = after["cart_item_rent_end_date"];
+               const endRent:string = after["cart_item_rent_start_date"];
 
+               //create transaction for client
+               const transactionClientPromise = await admin.firestore()
+                   .collection("Transaction_Client/"+buyerUID+"/events/"+eventUID+"/transaction_client")
+                   .add({
+                       transaction_client_is_deliverable: isDeliverable,
+                       transaction_client_item_rating: itemRating,
+                       transaction_client_buyer_uid: buyerUID,
+                       transaction_client_deliver_location: deliverLocation,
+                       transaction_client_event_uid: eventUID,
+                       transaction_client_item_uid: itemUID,
+                       transaction_client_item_count: itemCount,
+                       transaction_client_item_price: itemPrice,
+                       transaction_client_item_name: itemName,
+                       transaction_client_order_cost: orderCost,
+                       transaction_client_rent_start_date: startRent,
+                       transaction_client_rent_end_date: endRent
+                   });
+
+               //update the transaction client with a key
+               await admin.firestore()
+                   .doc("Transaction_Client/"+buyerUID+"/events/"+eventUID+"/transaction_client/"+transactionClientPromise.id.toString())
+                   .update({
+                       transaction_client_uid: transactionClientPromise.id.toString()
+                   });
+
+               //get store uid
+               const itemDetailPromise = await admin.firestore().doc("Items/"+itemUID).get();
+               const itemDetail = itemDetailPromise.data();
+               const storeUid:string = itemDetail["item_store_id"];
+
+               //get seller uid
+               const storeDetailPromise = await admin.firestore().doc("Store/"+storeUid).get();
+               const storeDetail = storeDetailPromise.data();
+               const storeOwnerUid:string = storeDetail["store_owner_id"];
+
+               //create transaction for supplier
+               const transactionSupplierPromise = await admin.firestore()
+                   .doc("Transaction_Supplier/"+storeOwnerUid+"/transaction_supplier/"+transactionClientPromise.id.toString())
+                   .set({
+                       transaction_supplier_is_deliverable: isDeliverable,
+                       transaction_supplier_item_rating: itemRating,
+                       transaction_supplier_buyer_uid: buyerUID,
+                       transaction_supplier_deliver_location: deliverLocation,
+                       transaction_supplier_event_uid: eventUID,
+                       transaction_supplier_item_uid: itemUID,
+                       transaction_supplier_item_count: itemCount,
+                       transaction_supplier_item_price: itemPrice,
+                       transaction_supplier_item_name: itemName,
+                       transaction_supplier_order_cost: orderCost,
+                       transaction_supplier_rent_start_date: startRent,
+                       transaction_supplier_rent_end_date: endRent,
+                       transaction_supplier_key: transactionClientPromise.id.toString()
+                   });
+
+               return transactionSupplierPromise
            } else {
                return null;
            }
