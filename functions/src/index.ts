@@ -3348,7 +3348,7 @@ export const logNewTrasactionItems = functions
                        transaction_supplier_order_cost: orderCost,
                        transaction_supplier_rent_start_date: startRent,
                        transaction_supplier_rent_end_date: endRent,
-                       transaction_supplier_key: transactionClientPromise.id.toString()
+                       transaction_supplier_uid: transactionClientPromise.id.toString()
                    });
 
                return transactionSupplierPromise
