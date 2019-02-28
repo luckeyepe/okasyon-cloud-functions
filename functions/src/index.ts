@@ -3312,7 +3312,9 @@ export const logNewTrasactionItems = functions
                        transaction_client_item_name: itemName,
                        transaction_client_order_cost: orderCost,
                        transaction_client_rent_start_date: startRent,
-                       transaction_client_rent_end_date: endRent
+                       transaction_client_rent_end_date: endRent,
+                       transaction_client_status: "pending",
+                       transaction_client_review: "",
                    });
 
                //update the transaction client with a key
@@ -3348,6 +3350,8 @@ export const logNewTrasactionItems = functions
                        transaction_supplier_order_cost: orderCost,
                        transaction_supplier_rent_start_date: startRent,
                        transaction_supplier_rent_end_date: endRent,
+                       transaction_supplier_status: "pending",
+                       transaction_supplier_review:"",
                        transaction_supplier_uid: transactionClientPromise.id.toString()
                    });
 
@@ -3473,9 +3477,9 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
         //decrease the total amount of items
         const totalPromise = await admin.firestore()
             .collection('Number_of_Events')
-            .doc(eventCategory).get();
+            .doc("Total").get();
 
-        const decreasedTotalSize:number = itemCategoryPromise.data()['number_of_events_in_category'] - 1;
+        const decreasedTotalSize:number = totalPromise.data()['number_of_events_in_category'] - 1;
 
         const decreaseTotalPromise = await admin.firestore()
             .collection('Number_of_Events')
