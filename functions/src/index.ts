@@ -3362,7 +3362,77 @@ export const logNewTrasactionItems = functions
        }
     });
 
+//Reviews//
+export const logNewReview = functions.region('asia-northeast1').firestore
+    .document("Transaction_Client/{buyerUid}/events/{eventUid}/transaction_client/{transactionKey}")
+    .onUpdate(async (change, context) => {
+        const after = change.after.data();
+        const before = change.before.data();
+        const reviewAfter:string = after["transaction_client_review"];
+        const reviewBefore:string = before["transaction_client_review"];
+        const ratingAfter:number = after["transaction_client_item_rating"];
+        const ratingBefore:number = before["transaction_client_item_rating"];
 
+        if (ratingAfter === ratingBefore && reviewBefore === reviewAfter){
+            console.log("No new review for transaction item "+ after.id);
+            return null
+        } else {
+            const itemUid:string = after["transaction_client_item_uid"];
+            const timeCreated:string = context.timestamp.toString();
+            const reviewerUid:string = after["transaction_client_buyer_uid"];
+
+            const userNamePromise = await admin.firestore().doc("User/"+reviewerUid).get();
+            const userName:string = ""+userNamePromise.data().user_first_name+" "+userNamePromise.data().user_last_name;
+
+            //get store uid
+            const itemDetailPromise = await admin.firestore().doc("Items/"+itemUid).get();
+            const itemDetail = itemDetailPromise.data();
+            const storeUid:string = itemDetail["item_store_id"];
+
+            //get seller uid
+            const storeDetailPromise = await admin.firestore().doc("Store/"+storeUid).get();
+            const storeDetail = storeDetailPromise.data();
+            const storeOwnerUid:string = storeDetail["store_owner_id"];
+
+            //create transaction for supplier
+             await admin.firestore()
+                .doc("Transaction_Supplier/"+storeOwnerUid+"/transaction_supplier/"+after["transaction_client_uid"])
+                .update({
+                    transaction_supplier_item_rating: ratingAfter,
+                    transaction_supplier_review: reviewAfter,
+                });
+
+            return admin.firestore().doc("Item_Rating/item_rating/"+itemUid+"/"+reviewerUid).set({
+                itemRating_review: reviewAfter,
+                itemRating_reviewerName: userName,
+                itemRating_starRating: ratingAfter,
+                itemRating_timestamp: timeCreated,
+                itemRating_reviewerUid: reviewerUid
+            })
+        }
+
+    });
+
+
+export const updateItemAverageRating = functions.region('asia-northeast1')
+    .firestore
+    .document("Item_Rating/item_rating/{itemUid}/{reviewerUid}")
+    .onCreate(async(snapshot, context) => {
+        //
+        const itemUid = snapshot.id;
+        const itemRatingPromise = await admin.firestore().collection("Item_Rating/item_rating/"+itemUid).get();
+        const numberOfReviews:number = itemRatingPromise.docs.length;
+        let sumOfRating: number = 0;
+
+        itemRatingPromise.docs.forEach(function (itemRating) {
+           sumOfRating+=itemRating.data()["itemRating_starRating"]
+        });
+
+        const averageRating:number = sumOfRating/numberOfReviews;
+
+
+
+    });
 //Events//
 
 export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
