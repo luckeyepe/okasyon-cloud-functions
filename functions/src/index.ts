@@ -180,7 +180,7 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     const item = snapshot.data();
     const itemName = item['item_name'];
     const storeUid = item['item_store_id'];
-    const itemUid = item['item_uid'];
+    const itemUid = snapshot.id;
     const itemCategory = item['item_category_id'];
 
     console.log("Item Name: " + itemName);
@@ -221,7 +221,7 @@ exports.logNewItems = functions.region('asia-northeast1').firestore
     console.log('Updated the total amount of items to '+ increasedTotalSize);
 
     //add item_average_rating
-    await admin.firestore().doc("Items/"+itemUid).update({
+    await admin.firestore().doc("Items/"+snapshot.id).update({
         item_average_rating: 0
     });
 
@@ -3407,7 +3407,8 @@ export const logNewReview = functions.region('asia-northeast1').firestore
                 itemRating_reviewerName: userName,
                 itemRating_starRating: ratingAfter,
                 itemRating_timestamp: timeCreated,
-                itemRating_reviewerUid: reviewerUid
+                itemRating_reviewerUid: reviewerUid,
+                itemRating_itemUid: itemUid
             })
         }
 
@@ -3419,20 +3420,26 @@ export const updateItemAverageRating = functions.region('asia-northeast1')
     .document("Item_Rating/item_rating/{itemUid}/{reviewerUid}")
     .onCreate(async(snapshot, context) => {
         //
-        const itemUid = snapshot.id;
+        const itemUid:string = snapshot.data().itemRating_itemUid;
         const itemRatingPromise = await admin.firestore().collection("Item_Rating/item_rating/"+itemUid).get();
         const numberOfReviews:number = itemRatingPromise.docs.length;
         let sumOfRating: number = 0;
+
+        console.log("Number of reviews for the item is "+numberOfReviews);
 
         itemRatingPromise.docs.forEach(function (itemRating) {
            sumOfRating+=itemRating.data()["itemRating_starRating"]
         });
 
+        console.log("Sum of rating is "+sumOfRating);
         const averageRating:number = sumOfRating/numberOfReviews;
 
-
-
+        console.log("New average rating is "+averageRating);
+        return admin.firestore().doc("Items/"+itemUid).update({
+            item_average_rating: averageRating
+        })
     });
+
 //Events//
 
 export const logNewEvent = functions.region('asia-northeast1').firestore.document('Event/{eventKey}')
