@@ -3321,6 +3321,13 @@ export const logNewTrasactionItems = functions
                const startRent:string = after["cart_item_rent_end_date"];
                const endRent:string = after["cart_item_rent_start_date"];
 
+               //do not delete this line
+               await admin.firestore()
+                   .doc("Transaction_Client/"+buyerUID+"/events/"+eventUID)
+                   .set({
+                       event_uid: eventUID
+                   });
+
                //create transaction for client
                const transactionClientPromise = await admin.firestore()
                    .collection("Transaction_Client/"+buyerUID+"/events/"+eventUID+"/transaction_client")
