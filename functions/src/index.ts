@@ -1,10 +1,5 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import {strictEqual} from "assert";
-import {Console} from "inspector";
-import enableLogging = admin.database.enableLogging;
-import {event} from "firebase-functions/lib/providers/analytics";
-import {start} from "repl";
 
 admin.initializeApp();
 
@@ -110,8 +105,32 @@ exports.logNewStores = functions.region('asia-northeast1').firestore
     })
 });
 
+//looks for exact match for the word
 function arrayContains(badWords: string[], word: string):boolean {
-    return badWords.indexOf(word) > -1;
+    if (badWords !== undefined) {
+        const found = badWords.find(function (element) {
+            return element.toLocaleLowerCase() === word.toLocaleLowerCase()
+        });
+
+        return found !== undefined;
+    }else {
+        return false
+    }
+    // return badWords.indexOf(word) > -1;
+}
+
+//looks for the word that contains the word
+function arrayHasWord(array: string[], word: string):boolean {
+    if (array !== undefined) {
+        const found = array.find(function (element) {
+            return element.toLocaleLowerCase().includes(word.toLocaleLowerCase())
+        });
+
+        return found !== undefined;
+    }else {
+        return false
+    }
+    // return badWords.indexOf(word) > -1;
 }
 
 function isNumber(value: string | number): boolean
@@ -2465,6 +2484,8 @@ export const getRelatedItems = functions.https.onCall(async (data, context)=>{
     const itemCategory:string = data.item_category;
     const user_uid = data.current_user_uid;
 
+    console.log("Item category is "+itemCategory);
+
     try {
         const userItemProfileReadPromise = await admin.firestore().doc("User_Item_Profile/"+user_uid+"/user_item_profile/"+itemCategory).get();
         const userItemProfile = userItemProfileReadPromise.data();
@@ -2579,8 +2600,10 @@ async function filterWithStoreName(storeName: string, itemCategory: string, isFo
         const storeUid: string = storeData["store_uid"];
         const storeNameWords: string[] = storeData['store_name_keywords'];
 
+        console.log("The store keywords are "+ storeNameWords);
+
          for (let x = 0; x<storeNameKeywords.length; x++){
-             if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+             if (arrayHasWord(storeNameWords, storeNameKeywords[x])) {
                  console.log("The store "+storeUid+" is a match");
                  matchingStoreUids.push(storeUid);
                  break;
@@ -2662,7 +2685,7 @@ async function filterWithStoreNameAndOthers(storeName: string,
         const storeNameWords: string[] = storeData['store_name_keywords'];
 
         for (let x = 0; x<storeNameKeywords.length; x++){
-            if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+            if (arrayHasWord(storeNameWords, storeNameKeywords[x])) {
                 console.log("The store "+storeUid+" is a match");
                 matchingStoreUids.push(storeUid);
                 break;
@@ -2702,11 +2725,11 @@ async function filterWithStoreNameAndLocationAndOthers(storeName: string,
         const storeLocationWords: string[] = storeData['store_location_keywords'];
 
         for (let x = 0; x<storeNameKeywords.length; x++){
-            if (arrayContains(storeNameWords, storeNameKeywords[x])) {
+            if (arrayHasWord(storeNameWords, storeNameKeywords[x])) {
                 console.log("The store "+storeUid+" is a match");
 
                 for(let y =0; y<storeLocationKeyWords.length; y++){
-                    if (arrayContains(storeNameWords, storeLocationWords[y])){
+                    if (arrayHasWord(storeNameWords, storeLocationWords[y])){
                         matchingStoreUids.push(storeUid);
                         break;
                     }
@@ -2781,7 +2804,7 @@ async function filterWithLocationAndOthers(location: string,
         const storeLocationWords: string[] = storeData['store_location_keywords'];
 
         for (let x = 0; x<storeLocationKeyWords.length; x++){
-            if (arrayContains(storeLocationWords, storeLocationKeyWords[x])) {
+            if (arrayHasWord(storeLocationWords, storeLocationKeyWords[x])) {
                 console.log("The store "+storeUid+" is a match");
                 matchingStoreUids.push(storeUid);
                 break;
@@ -2867,7 +2890,7 @@ async function filterWithLocation(location: string, itemCategory: string, isForS
         const storeLocationWords: string[] = storeData['store_location_keywords'];
 
         for (let x = 0; x<locationKeywords.length; x++){
-            if (arrayContains(storeLocationWords, locationKeywords[x])) {
+            if (arrayHasWord(storeLocationWords, locationKeywords[x])) {
                 console.log("The store "+storeUid+" is a match");
                 matchingStoreUids.push(storeUid);
                 break;
@@ -2894,10 +2917,11 @@ async function filterWithLocation(location: string, itemCategory: string, isForS
     // return resultItemUids
 }
 
-async function filterWithItemRating(itemRating: number, isForSale: boolean): Promise<string[]> {
+async function filterWithItemRating(itemRating: number, isForSale: boolean, itemCategory: string): Promise<string[]> {
     const resultItemUids: string[] = [];
 
     const itemReadPromise = await admin.firestore().collection("Items")
+        .where("item_category_id", "==", itemCategory)
         .where("item_average_rating", "<=", itemRating + 0.5)
         .where("item_average_rating", ">=", itemRating - 0.5)
         .orderBy("item_average_rating", "desc")
@@ -3001,7 +3025,7 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         location === ""){
         console.log("Filtering with rating only");
 
-        const resultItemUids = await filterWithItemRating(itemRating, isForSale);
+        const resultItemUids = await filterWithItemRating(itemRating, isForSale, itemCategory);
         itemUids = itemUids.concat(resultItemUids);
 
         return {
