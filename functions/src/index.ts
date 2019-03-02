@@ -3386,6 +3386,99 @@ export const logNewTrasactionItems = functions
        }
     });
 
+//Notification//
+export const sendTransactionNotificationSupplier = functions.region('asia-northeast1').firestore
+    .document("Transaction_Supplier/{supplierUid}/transaction_supplier/{transactionUid}")
+    .onCreate(async (snapshot, context) => {
+        const buyerUid:string = snapshot.data().transaction_supplier_buyer_uid;
+        const itemUid:string = snapshot.data().transaction_supplier_item_uid;
+        const amount:number = snapshot.data().transaction_supplier_item_count;
+        const cost:number = snapshot.data().transaction_supplier_order_cost;
+        const notificationIsSeen:boolean = false;
+        const transactionUid:string = snapshot.id;
+        const rentStart = snapshot.data().transaction_supplier_rent_start_date;
+        const rentEnd = snapshot.data().transaction_supplier_rent_end_date;
+        let notificationMessage:string = "";
+
+        const buyerNamePromise = await admin.firestore().doc("User/"+buyerUid).get();
+        const buyerName:string = buyerNamePromise.data().user_first_name +" "+ buyerNamePromise.data().user_last_name;
+
+        const itemNamePromise = await admin.firestore().doc("Items/"+itemUid).get();
+        const itemName:string = itemNamePromise.data().item_name;
+        const storeUid: string = itemNamePromise.data().item_store_id;
+
+        const sellerUidPromise = await admin.firestore().doc("Store/"+storeUid).get();
+        const sellerUid:string = sellerUidPromise.data().store_owner_id;
+
+        if (rentStart === "") {
+            notificationMessage = buyerName + " wants to buy " + amount + " of "+itemName;
+        }else {
+            notificationMessage = buyerName + " wants to rent " + amount + " of "+itemName
+                + ". Starting " + rentStart+ " until "+ rentEnd;
+        }
+
+        //create notification
+        const notificationWritePromise = await admin.firestore()
+            .collection("Notification")
+            .doc(sellerUid)
+            .collection("supplier_notifications")
+            .add({
+                notification_message: notificationMessage,
+                notification_is_seen: notificationIsSeen,
+                notification_transaction_uid: transactionUid
+            });
+
+        return admin.firestore().doc(notificationWritePromise.path).update({
+            notification_uid: notificationWritePromise.id
+        })
+    });
+
+export const sendTransactionNotificationBuyer = functions.region('asia-northeast1').firestore
+    .document("Notification/{supplierUid}/supplier_notifications")
+    .onCreate(async (snapshot, context) => {
+        const buyerUid:string = snapshot.data().transaction_supplier_buyer_uid;
+        const itemUid:string = snapshot.data().transaction_supplier_item_uid;
+        const amount:number = snapshot.data().transaction_supplier_item_count;
+        const cost:number = snapshot.data().transaction_supplier_order_cost;
+        const notificationIsSeen:boolean = false;
+        const transactionUid:string = snapshot.id;
+        const rentStart = snapshot.data().transaction_supplier_rent_start_date;
+        const rentEnd = snapshot.data().transaction_supplier_rent_end_date;
+        let notificationMessage:string = "";
+
+        const buyerNamePromise = await admin.firestore().doc("User/"+buyerUid).get();
+        const buyerName:string = buyerNamePromise.data().user_first_name +" "+ buyerNamePromise.data().user_last_name;
+
+        const itemNamePromise = await admin.firestore().doc("Items/"+itemUid).get();
+        const itemName:string = itemNamePromise.data().item_name;
+        const storeUid: string = itemNamePromise.data().item_store_id;
+
+        const sellerUidPromise = await admin.firestore().doc("Store/"+storeUid).get();
+        const sellerUid:string = sellerUidPromise.data().store_owner_id;
+
+        if (rentStart === "") {
+            notificationMessage = buyerName + " wants to buy " + amount + " of "+itemName;
+        }else {
+            notificationMessage = buyerName + " wants to rent " + amount + " of "+itemName
+                + ". Starting " + rentStart+ " until "+ rentEnd;
+        }
+
+        //create notification
+        const notificationWritePromise = await admin.firestore()
+            .collection("Notification")
+            .doc(sellerUid)
+            .collection("notifications")
+            .add({
+                notification_message: notificationMessage,
+                notification_is_seen: notificationIsSeen,
+                notification_transaction_uid: transactionUid
+            });
+
+        return admin.firestore().doc(notificationWritePromise.path).update({
+            notification_uid: notificationWritePromise.id
+        })
+    });
+
 //Reviews//
 export const logNewReview = functions.region('asia-northeast1').firestore
     .document("Transaction_Client/{buyerUid}/events/{eventUid}/transaction_client/{transactionKey}")
