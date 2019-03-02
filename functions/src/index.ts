@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import {event} from "firebase-functions/lib/providers/analytics";
 
 admin.initializeApp();
 
@@ -3292,6 +3293,29 @@ export const updateItemCategorySpentBudgetOnDelete = functions
         return admin.firestore().doc("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category/"+itemCategory).update({
             ceic_item_actual_budget: updatedBudget
         })
+    });
+
+export const updateItemCategorySpentBudgetOnCategoryDelete = functions
+    .region('asia-northeast1')
+    .firestore
+    .document("Custom_Event_Item_Category/{eventUid}/ceic_item_category/{itemCategoryID}")
+    .onDelete(async (snapshot, context) => {
+        const data = snapshot.data();
+        const categoryCost: number = data.ceic_item_actual_budget;
+        const eventUid:string = data.ceic_item_event_uid;
+        const itemCategory: string = data.ceic_item_event_uid;
+
+        const cartGroupPromise = await admin.firestore().collection("Cart_Group").where("cart_group_event_uid", "==", eventUid).get();
+        const cartGroupId = cartGroupPromise.docs[0].data().cart_group_uid;
+
+        const deleteCartItemPromise = await admin.firestore().collection("Cart_Items/"+cartGroupId+"/cart_items").where("cart_item_event_uid","==", eventUid).get();
+
+        deleteCartItemPromise.docs.forEach(async function (item) {
+            const cartItemUid = item.data().cart_item_id;
+            await admin.firestore().doc(item.ref.path).delete()
+        });
+
+        return deleteCartItemPromise
     });
 
 //Transaction//
