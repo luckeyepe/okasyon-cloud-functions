@@ -2942,10 +2942,11 @@ async function filterWithItemRating(itemRating: number, isForSale: boolean, item
     return resultItemUids;
 }
 
-async function filterWithIsForSale(isForSale: boolean):Promise<string[]> {
+async function filterWithIsForSale(isForSale: boolean, itemCategory: string):Promise<string[]> {
     const resultItemUids: string[] = [];
     const itemReadPromise = await admin.firestore()
-        .collection("Items/")
+        .collection("Items")
+        .where("item_category_id", "==", itemCategory)
         .where("item_for_sale", "==", isForSale)
         .get();
 
@@ -2954,6 +2955,9 @@ async function filterWithIsForSale(isForSale: boolean):Promise<string[]> {
     itemRead.forEach(function (item) {
         resultItemUids.push(item.data()["item_uid"])
     });
+
+    console.log("returning the item ids: "+resultItemUids);
+
     return resultItemUids;
 }
 
@@ -3045,7 +3049,7 @@ export const filterItems = functions.https.onCall(async (data, context)=>{
         location === ""){
         console.log("Filtering with isForSale only");
 
-        itemUids = itemUids.concat(await filterWithIsForSale(isForSale));
+        itemUids = itemUids.concat(await filterWithIsForSale(isForSale, itemCategory));
 
         return {
             filterResult: itemUids
@@ -3747,7 +3751,8 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
 
         ///////
         //delete sponsor's list
-        const sponsorsListDeletePromise = await admin.firestore().doc("Sponsors_List/"+eventUid).delete();
+        await admin.firestore().doc("Sponsors_List/"+eventUid).delete();
+        console.log("The sponsors list of the event "+ eventUid+" has been deleted");
 
         //delete from sponsored events
         const sponsoredEventDeletePromise = await admin.firestore()
@@ -3761,32 +3766,43 @@ export const onEventDelete = functions.region('asia-northeast1').firestore.docum
            const sponsorUid = sponsoredEvent['sponsored_event_user_uid'];
            const sponsoredEventCategory = sponsoredEvent['sponsored_event_event_category_id'];
 
-           await admin.firestore().doc('Sponsored_Event'+sponsorUid+'/'+sponsoredEventCategory+'/'+sponsoredEventUid).delete()
-           // await admin.firestore().doc("Sponsors_List/"+sponsorUid+"/"sponsoredEventCategory+"/"+sponsoredEventUid).delete();
+           // await admin.firestore().doc('Sponsored_Event'+sponsorUid+'/'+sponsoredEventCategory+'/'+sponsoredEventUid).delete();
+           await admin.firestore().doc(events.ref.path).delete();
+            console.log("The event "+ eventUid+" has been deleted from the sponosred list of user "+sponsorUid);
+            // await admin.firestore().doc("Sponsors_List/"+sponsorUid+"/"sponsoredEventCategory+"/"+sponsoredEventUid).delete();
         });
 
         //delete from attended events
         const attendedEventDeletePromise = await admin.firestore()
             .collection("Attended_Events").where("attended_event_event_uid", "==", eventUid).get();
 
-        const attendedEventDelete = sponsoredEventDeletePromise.docs;
+        const attendedEventDelete = attendedEventDeletePromise.docs;
 
         attendedEventDelete.forEach(async function (events) {
             const attendedEvent = events.data();
             const attendedEventUid = attendedEvent['attended_event_event_uid'];
             const attendedUid = attendedEvent['attended_event_user_uid'];
             const attendedEventCategory = attendedEvent['attended_event_event_category_id'];
-
-            await admin.firestore().doc('Sponsored_Event'+attendedUid+'/'+attendedEventCategory+'/'+attendedEventUid).delete()
+            //
+            // await admin.firestore().doc('Attended_Events'+attendedUid+'/'+attendedEventCategory+'/'+attendedEventUid).delete()
+            await admin.firestore().doc(events.ref.path).delete();
+            console.log("The event "+ eventUid+" has been deleted from the attended events list of user "+ attendedUid);
             // await admin.firestore().doc("Sponsors_List/"+sponsorUid+"/"sponsoredEventCategory+"/"+sponsoredEventUid).delete();
         });
 
         //delete attendees's list
-        const attendeesListDeletePromise = await admin.firestore().doc("Attendees_List/"+eventUid).delete();
-
+        await admin.firestore().doc("Attendees_List/"+eventUid).delete();
+        console.log("The attendees list of the event "+eventUid+" has been deleted");
 
         //delete custom item list
-        await  admin.firestore().doc("Custom_Event_Item_Category/"+eventUid).delete();
+        const cetc = await  admin.firestore().collection("Custom_Event_Item_Category/"+eventUid+"/ceic_item_category").get();
+
+        cetc.forEach(async function (doc) {
+            await admin.firestore().doc(doc.ref.path).delete();
+            console.log(doc.ref.path + " has been deleted");
+        });
+
+        console.log("The cil list of the event "+eventUid+" has been deleted");
 
         return
     });
