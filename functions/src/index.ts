@@ -3308,7 +3308,10 @@ export const updateItemCategorySpentBudgetOnCategoryDelete = functions
         const cartGroupPromise = await admin.firestore().collection("Cart_Group").where("cart_group_event_uid", "==", eventUid).get();
         const cartGroupId = cartGroupPromise.docs[0].data().cart_group_uid;
 
-        const deleteCartItemPromise = await admin.firestore().collection("Cart_Items/"+cartGroupId+"/cart_items").where("cart_item_event_uid","==", eventUid).get();
+        const deleteCartItemPromise = await admin.firestore()
+            .collection("Cart_Items/"+cartGroupId+"/cart_items")
+            .where("cart_item_in_transaction", "==", false)
+            .where("cart_item_event_uid","==", eventUid).get();
 
         deleteCartItemPromise.docs.forEach(async function (item) {
             const cartItemUid = item.data().cart_item_id;
